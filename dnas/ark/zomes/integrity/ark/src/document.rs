@@ -11,8 +11,12 @@ pub struct Document {
     pub meta: BTreeMap<String, String>,
 }
 
+/// The action parameter is unused but kept in the signature so a future rule can
+/// use it. Type is `Action`, matching `../presence-0.7` — the call site's
+/// `action.into()` converts to it, and `EntryCreationAction` is not a name
+/// `holochain_integrity_types` 0.7 exports.
 pub fn validate_create_document(
-    _action: TypedAction<EntryCreationData>,
+    _action: Action,
     document: Document,
 ) -> ExternResult<ValidateCallbackResult> {
     if document.body.len() > MAX_BODY_BYTES {
