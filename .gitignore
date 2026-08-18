@@ -1,4 +1,9 @@
 target/
 node_modules/
 dist/
+dist.zip
+*.happ
+*.dna
+*.webhapp
 .DS_Store
+.hc*

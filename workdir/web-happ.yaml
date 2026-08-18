@@ -1,0 +1,7 @@
+---
+manifest_version: "0"
+name: ark
+ui:
+  path: "../ui/dist.zip"
+happ:
+  path: "./ark.happ"

@@ -1,0 +1,40 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Pure-Node gate: vitest + svelte-check, no holochain toolchain. Deliberately
+  # outside `nix develop` so the fastest gate cannot be blocked by a toolchain
+  # outage. Node pinned to match flake.nix nodejs_22 exactly.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      - run: npm run verify
+
+  # Conductor-level DNA tests. Needs the nix devshell for cargo, `hc`, and a
+  # real conductor binary; the holochain-ci cachix cache keeps this in minutes.
+  dna-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v16
+        with:
+          name: holochain-ci
+      - run: nix develop -c npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+      - run: nix develop -c npm test

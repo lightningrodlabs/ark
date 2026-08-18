@@ -90,7 +90,7 @@ ark/
   workdir/               happ.yaml, web-happ.yaml
   docs/superpowers/specs/
   weave.dev.config.ts
-  flake.nix, rust-toolchain.toml, Cargo.toml
+  flake.nix, Cargo.toml
   .github/workflows/test.yaml
 ```
 
@@ -154,14 +154,20 @@ amending a document never drops its filing or its attachments.
 
 ### Resolving latest
 
-One helper, used for both documents and the tree: `get_details` on the original,
-walk the update graph, and where it branches keep the head with the newest action
-timestamp, ties broken by action hash so every peer picks the same head.
+Two helpers over the same update graph, because documents and the tree want
+opposite things from a fork.
 
-For a document this yields one winning version plus the ordered list of prior
-versions to display beneath it.
+**Documents want one winner.** `latest_of` walks the graph from the original and,
+where it branches, keeps the head with the newest action timestamp, ties broken by
+action hash so every peer picks the same one. That yields the version to display,
+and a companion walk collects the losing branches so every version — not only the
+winning path — appears in the history beneath it.
 
-For the tree it yields several heads, which are then merged (below).
+**The tree wants them all.** `all_tips` returns every leaf of the graph. Collapsing
+the tree to a single winner would discard the losing branch's folders outright,
+which would make both the union merge and the `deleted` tombstone pointless: a
+concurrent "add a folder" on the losing side would simply vanish. The zome never
+merges; it hands every tip to the UI, which merges them (below).
 
 ### Tree merge
 
@@ -172,7 +178,10 @@ chain. Rather than lock it, the UI resolves forks deterministically:
 2. Union all `folders` by `id`.
 3. Where an `id` appears in several heads, keep the one from the newest action;
    ties broken by action hash.
-4. Commit the merged result on the next write, collapsing the fork.
+4. Commit the merged result onto **every** current tip on the next write, so all
+   tips carry identical content and the fork stops mattering. Writing only the
+   newest tip would leave the loser's tip live forever, growing the tip count with
+   every concurrent edit.
 
 Every peer computes the same tree from the same data. Concurrent "add a folder"
 never loses a folder. Concurrent renames of the *same* folder resolve
@@ -413,7 +422,9 @@ dominates and splitting costs more than it saves.
 
 ## Dev setup
 
-`flake.nix` and `rust-toolchain.toml` from presence-0.7 (Holochain 0.7).
+`flake.nix` from presence-0.7 (Holochain 0.7). No `rust-toolchain.toml` — presence-0.7
+has none, and holonix `main-0.7`'s `rust` package supplies the wasm target and the
+compiler the Holochain 0.7 dependency tree expects.
 `@theweave/cli 0.16.0-dev.x` with a `weave.dev.config.ts` running two agents for
 `npm run applet-dev`, plus `hc-spin` for non-Moss iteration.
 

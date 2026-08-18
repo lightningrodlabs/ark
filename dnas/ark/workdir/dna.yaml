@@ -1,0 +1,18 @@
+---
+manifest_version: "0"
+name: ark
+integrity:
+  network_seed: ~
+  properties: ~
+  zomes:
+    - name: ark_integrity
+      hash: ~
+      path: "../../../target/wasm32-unknown-unknown/release/ark_integrity.wasm"
+      dependencies: ~
+coordinator:
+  zomes:
+    - name: ark
+      hash: ~
+      path: "../../../target/wasm32-unknown-unknown/release/ark.wasm"
+      dependencies:
+        - name: ark_integrity
