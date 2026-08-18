@@ -1,5 +1,8 @@
 use hdk::prelude::*;
 
+pub mod document;
+pub mod types;
+
 #[hdk_extern]
 pub fn init(_: ()) -> ExternResult<InitCallbackResult> {
     Ok(InitCallbackResult::Pass)
