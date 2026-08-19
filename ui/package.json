@@ -8,6 +8,7 @@
     "typecheck": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:perf": "vitest run src/search/perf.test.ts",
     "package": "rimraf dist && rimraf dist.zip && npm run build && cd dist && bestzip ../dist.zip *"
   },
   "dependencies": {

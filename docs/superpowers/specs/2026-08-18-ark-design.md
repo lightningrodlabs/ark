@@ -450,7 +450,15 @@ knows they were considered rather than missed:
 
 - **Purge.** A real `delete_entry` plus link cleanup, for genuinely unwanted
   content. Deferred; trash covers the ordinary case reversibly.
-- **IndexedDB cache.** Deferred pending the performance test result.
+- **IndexedDB cache.** Measured: `ui/src/search/perf.test.ts` builds the
+  `ArkIndex` over a synthetic 1406-document corpus (matching the reference
+  workload's document count and total word count) in ~250-300 ms against a
+  5000 ms budget, and answers each of five representative queries in under
+  15 ms against a 100 ms budget — both roughly an order of magnitude inside
+  budget. Run locally against the real reference corpus archive (1409 documents) the
+  build takes ~550 ms, still comfortably inside budget. No cache is needed
+  for the MVP; cold load at this scale is not a problem worth the added
+  complexity.
 - **Roles and permissions.** Anyone in the group may do anything.
 - **A DNA-stored metadata schema entry.** Metadata stays an open map the UI
   interprets.
