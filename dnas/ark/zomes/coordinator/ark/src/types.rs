@@ -1,3 +1,4 @@
+use ark_integrity::Folder;
 use hdk::prelude::*;
 use std::collections::BTreeMap;
 
@@ -39,4 +40,16 @@ pub struct DocumentVersion {
     pub timestamp: Timestamp,
     pub body: String,
     pub meta: BTreeMap<String, String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UpdateFolderTreeInput {
+    pub folders: Vec<Folder>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TreeHead {
+    pub action: ActionHash,
+    pub timestamp: Timestamp,
+    pub folders: Vec<Folder>,
 }
