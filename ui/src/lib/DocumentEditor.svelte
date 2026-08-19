@@ -29,6 +29,7 @@
   let date = $state(initial?.meta.date ?? new Date().toISOString().slice(0, 10));
   let body = $state(initial?.body ?? '');
   let saving = $state(false);
+  let error = $state<string | undefined>(undefined);
   let preview = $derived(renderMarkdown(body));
 
   /**
@@ -48,6 +49,7 @@
 
   async function save() {
     saving = true;
+    error = undefined;
     try {
       const meta: Meta = { ...(doc?.meta ?? {}), title, date };
       if (mode === 'create') {
@@ -56,6 +58,10 @@
         await ark.amendDocument({ original: doc!.original, body, meta });
         onDone(doc!.original);
       }
+    } catch (e) {
+      // Never lose someone's text to a silent rejection. The editor stays open
+      // with the body intact so they can retry or copy it out.
+      error = `Could not save: ${e}`;
     } finally {
       saving = false;
     }
@@ -71,6 +77,9 @@
     <textarea bind:value={body} onpaste={onPaste} placeholder="Paste from Google Docs, or write markdown"></textarea>
     <div class="preview">{@html preview}</div>
   </div>
+  {#if error}
+    <p class="error" role="alert">{error}</p>
+  {/if}
   <div class="actions">
     <button onclick={save} disabled={saving || !title}>
       {mode === 'create' ? 'Add document' : 'Save amendment'}
@@ -86,4 +95,5 @@
   .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; flex: 1; min-height: 20rem; }
   textarea { width: 100%; height: 100%; font-family: ui-monospace, monospace; }
   .preview { overflow: auto; border: 1px solid rgba(128, 128, 128, 0.3); padding: 0.5rem; }
+  .error { color: #b00020; margin: 0; }
 </style>

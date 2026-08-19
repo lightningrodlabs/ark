@@ -61,6 +61,29 @@ export function cleanGoogleDocsHtml(html: string): string {
     }
   });
 
+  // Google Docs exports table header rows as bold <td>, never <th> — verified
+  // across the reference corpus, where no exported table uses <th> at all. And
+  // turndown-plugin-gfm only emits a GFM pipe table when the first row is all
+  // <th>; otherwise it keeps the entire <table> as raw HTML. Without this
+  // promotion the dominant real-world table shape lands in the archive as an
+  // unreadable, uneditable HTML blob sitting inside a markdown body.
+  doc.querySelectorAll('table').forEach((table) => {
+    const firstRow = table.querySelector('tr');
+    if (!firstRow) return;
+    const cells = [...firstRow.children].filter((c) => c.tagName === 'TD');
+    if (cells.length === 0) return;
+    const headerish = cells.every((cell) => {
+      const text = (cell.textContent ?? '').trim();
+      return text === '' || cell.querySelector('strong, b') !== null;
+    });
+    if (!headerish) return;
+    for (const cell of cells) {
+      const th = doc.createElement('th');
+      th.append(...cell.childNodes);
+      cell.replaceWith(th);
+    }
+  });
+
   // Anything left with a style attribute keeps its text, loses its wrapper.
   doc.querySelectorAll('[style]').forEach((el) => el.removeAttribute('style'));
   doc.querySelectorAll('[id], [class]').forEach((el) => {

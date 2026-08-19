@@ -23,6 +23,8 @@ export class DocumentStore {
   trashed = $state(new Set<string>());
   loaded = $state(0);
   total: number | null = $state(null);
+  /** Folder list from the last load, so filings can be re-read without it. */
+  private lastFolders: Folder[] = [];
 
   constructor(
     private ark: ArkClient,
@@ -49,6 +51,7 @@ export class DocumentStore {
    * what makes documents under a deleted folder findable rather than lost.
    */
   async loadFilings(folders: Folder[]): Promise<void> {
+    this.lastFolders = folders;
     const filings = new Map<string, string | null>();
     for (const original of this.byOriginal.keys()) filings.set(original, null);
     const results = await this.ark.getFilings(folders.map((f) => f.id));
@@ -68,6 +71,16 @@ export class DocumentStore {
     const next = new Map(this.byOriginal);
     next.set(key(original), doc);
     this.byOriginal = next;
+  }
+
+  /**
+   * Re-read the folder each document is filed under, using the folder list from
+   * the last load. Creating a document writes a filing LINK, which
+   * `refreshDocument` does not see — without this a document filed into a
+   * folder stays invisible there until the app reloads.
+   */
+  async refreshFilings(): Promise<void> {
+    await this.loadFilings(this.lastFolders);
   }
 
   /** Documents filed in this folder or any descendant, trashed ones excluded. */

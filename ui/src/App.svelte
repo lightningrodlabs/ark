@@ -86,6 +86,7 @@
   async function onEditorDone(original: ActionHash) {
     if (!store) return;
     await store.refreshDocument(original);
+    await store.refreshFilings();
     selectedDoc = store.byOriginal.get(key(original)) ?? null;
     editing = null;
   }

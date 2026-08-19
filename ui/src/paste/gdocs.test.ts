@@ -53,6 +53,17 @@ describe('htmlToMarkdown', () => {
     expect(htmlToMarkdown('Just words.').trim()).toEqual('Just words.');
   });
 
+  it('converts a realistic bold-<td> table to GFM, not a raw HTML blob', () => {
+    // The corpus's Google Docs tables have no <th> at all, and
+    // turndown-plugin-gfm silently keeps such a table as raw HTML. The
+    // already-<th> unit test above passes either way, so only this one fails if
+    // the header promotion regresses.
+    const md = htmlToMarkdown(readFileSync(path.join(FIXTURES, 'gdocs-table.html'), 'utf8'));
+    expect(md).not.toMatch(/<table/i);
+    expect(md).not.toMatch(/<t[dhr]\b/i);
+    expect(md).toMatch(/\|\s*---/);
+  });
+
   it('produces span-free markdown for every real fixture', () => {
     const files = readdirSync(FIXTURES).filter((f) => f.endsWith('.html'));
     expect(files.length).toBeGreaterThanOrEqual(3);
