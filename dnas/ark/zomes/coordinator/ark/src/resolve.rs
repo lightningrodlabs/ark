@@ -18,40 +18,33 @@ pub fn decode_entry<T: TryFrom<SerializedBytes, Error = SerializedBytesError>>(
     })
 }
 
-/// Walk the update graph from `original` and return the winning tip record.
-/// Returns None only if `original` itself cannot be fetched.
+/// The winning version: `pick_head` applied across ALL tips of the update graph.
+///
+/// Deliberately NOT a greedy walk that picks a winner at each fork and descends.
+/// Greedy resolution abandons the losing sibling's entire subtree, so an agent who
+/// amends twice offline can have both edits vanish the moment another agent's
+/// single later amendment wins the first fork. Determinism is unchanged: every
+/// peer sees the same graph and therefore the same tip set.
 pub fn latest_of(original: ActionHash) -> ExternResult<Option<Record>> {
-    let mut current = original;
-    loop {
-        let Some(Details::Record(details)) = get_details(current.clone(), GetOptions::local())?
-        else {
-            return Ok(None);
-        };
-        let candidates: Vec<(Vec<u8>, i64)> = details
-            .updates
-            .iter()
-            .map(|u| {
-                (
-                    u.hashed.hash.get_raw_39().to_vec(),
-                    u.hashed.content.timestamp().as_micros(),
-                )
-            })
-            .collect();
-        match pick_head(&candidates) {
-            None => return Ok(Some(details.record)),
-            Some(raw) => {
-                let next = details
-                    .updates
-                    .iter()
-                    .find(|u| u.hashed.hash.get_raw_39().to_vec() == raw)
-                    .map(|u| u.hashed.hash.clone())
-                    .ok_or(wasm_error!(WasmErrorInner::Guest(
-                        "Selected head is not among the updates".to_string()
-                    )))?;
-                current = next;
-            }
-        }
+    let tips = all_tips(original.clone())?;
+    if tips.is_empty() {
+        return Ok(get(original, GetOptions::local())?);
     }
+    let candidates: Vec<(Vec<u8>, i64)> = tips
+        .iter()
+        .map(|r| {
+            (
+                r.action_address().get_raw_39().to_vec(),
+                r.action().timestamp().as_micros(),
+            )
+        })
+        .collect();
+    let Some(raw) = pick_head(&candidates) else {
+        return Ok(None);
+    };
+    Ok(tips
+        .into_iter()
+        .find(|r| r.action_address().get_raw_39().to_vec() == raw))
 }
 
 /// Every leaf of the update graph.
@@ -85,34 +78,35 @@ pub fn all_tips(original: ActionHash) -> ExternResult<Vec<Record>> {
     Ok(tips)
 }
 
-/// Every version from the create action down the winning path, oldest first.
+/// EVERY version in the update graph, oldest first — not just the winning path.
+/// Ordering matches `pick_head`'s rule (timestamp, then hash bytes) so the last
+/// element is always the same record `latest_of` returns.
 pub fn version_chain(original: ActionHash) -> ExternResult<Vec<Record>> {
-    let mut chain = Vec::new();
-    let mut current = original;
-    loop {
-        let Some(Details::Record(details)) = get_details(current.clone(), GetOptions::local())?
-        else {
-            return Ok(chain);
-        };
-        chain.push(details.record.clone());
-        let mut sorted: Vec<_> = details.updates.iter().collect();
-        sorted.sort_by(|a, b| {
-            a.hashed
-                .content
-                .timestamp()
-                .cmp(&b.hashed.content.timestamp())
-                .then_with(|| a.hashed.hash.get_raw_39().cmp(b.hashed.hash.get_raw_39()))
-        });
-        // Losing branches are still versions and must be shown, so append them
-        // before descending into the winner.
-        for update in sorted.iter().take(sorted.len().saturating_sub(1)) {
-            if let Some(record) = get(update.hashed.hash.clone(), GetOptions::local())? {
-                chain.push(record);
-            }
+    let mut records: Vec<Record> = Vec::new();
+    let mut frontier = vec![original];
+    let mut seen: Vec<ActionHash> = Vec::new();
+    while let Some(current) = frontier.pop() {
+        if seen.contains(&current) {
+            continue;
         }
-        match sorted.last() {
-            None => return Ok(chain),
-            Some(winner) => current = winner.hashed.hash.clone(),
+        seen.push(current.clone());
+        let Some(Details::Record(details)) = get_details(current, GetOptions::local())? else {
+            continue;
+        };
+        records.push(details.record);
+        for update in details.updates {
+            frontier.push(update.hashed.hash.clone());
         }
     }
+    records.sort_by(|a, b| {
+        a.action()
+            .timestamp()
+            .cmp(&b.action().timestamp())
+            .then_with(|| {
+                a.action_address()
+                    .get_raw_39()
+                    .cmp(b.action_address().get_raw_39())
+            })
+    });
+    Ok(records)
 }

@@ -56,6 +56,33 @@ describe('amendments', () => {
     });
   });
 
+  it('keeps a deeper offline branch visible in the history', async () => {
+    await runScenario(async (scenario) => {
+      const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
+      await scenario.shareAllAgents();
+
+      const original = await call<ActionHash>(alice, 'create_document', doc('Minutes', 'v1'));
+      await dhtSync([alice, bob], arkCell(alice).cell_id[0]);
+
+      await Promise.all([
+        call(alice, 'amend_document', { original, body: 'alice a', meta: {} }),
+        call(bob, 'amend_document', { original, body: 'bob a', meta: {} }),
+      ]);
+      await dhtSync([alice, bob], arkCell(alice).cell_id[0]);
+      await call(alice, 'amend_document', { original, body: 'alice b', meta: {} });
+      await dhtSync([alice, bob], arkCell(alice).cell_id[0]);
+
+      const versions = await call<DocumentVersion[]>(bob, 'get_document_versions', original);
+      const bodies = versions.map((v) => v.body);
+      for (const body of ['v1', 'alice a', 'bob a', 'alice b']) {
+        expect(bodies, `missing ${body}`).toContain(body);
+      }
+
+      const summary = await call<DocumentSummary | null>(bob, 'get_document', original);
+      expect(summary!.body).toEqual(bodies[bodies.length - 1]);
+    });
+  });
+
   it('resolves concurrent amendments to the same latest on both agents', async () => {
     await runScenario(async (scenario) => {
       const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
