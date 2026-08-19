@@ -1,0 +1,79 @@
+<script lang="ts">
+  import type { ArkClient } from '../ark-client';
+  import type { TreeStore } from '../stores/tree.svelte';
+  import { planFolderDeletion } from '../tree/deletion';
+  import FolderNode from './FolderNode.svelte';
+
+  let {
+    tree,
+    ark,
+    selected,
+    counts = {},
+    onSelect,
+  }: {
+    tree: TreeStore;
+    ark: ArkClient;
+    selected: string | null;
+    counts?: Record<string, number>;
+    onSelect: (id: string | null) => void;
+  } = $props();
+
+  let roots = $derived(tree.live.filter((f) => !f.parent || !tree.live.some((p) => p.id === f.parent)));
+
+  async function addFolder(parent: string | null) {
+    const name = prompt(parent ? 'Name of the new sub-folder' : 'Name of the new folder');
+    if (name) await tree.addFolder(name, parent);
+  }
+
+  async function deleteFolder(id: string) {
+    const ids = tree.folders.map((f) => f.id);
+    const filings = await ark.getFilings(ids);
+    const plan = planFolderDeletion(tree.folders, filings, id);
+    const target = tree.folders.find((f) => f.id === id);
+    const destination = target?.parent
+      ? tree.folders.find((f) => f.id === target.parent)?.name
+      : 'Unfiled';
+    if (plan.moves.length) {
+      const ok = confirm(
+        `${plan.moves.length} document(s) are in this folder. Move them to ${destination} and delete it?`,
+      );
+      if (!ok) return;
+    }
+    for (const move of plan.moves) {
+      await ark.moveDocument({ original: move.original, from: move.from, to: move.to });
+    }
+    await tree.deleteFolder(id);
+    if (selected === id) onSelect(null);
+  }
+</script>
+
+<nav>
+  <div class="head">
+    <strong>Folders</strong>
+    <button onclick={() => addFolder(null)}>+</button>
+  </div>
+  <ul>
+    <li>
+      <button class:selected={selected === null} onclick={() => onSelect(null)}>All documents</button>
+    </li>
+    {#each roots as folder (folder.id)}
+      <FolderNode
+        {folder}
+        folders={tree.live}
+        {selected}
+        {counts}
+        onSelect={(id) => onSelect(id)}
+        onRename={(id, name) => tree.renameFolder(id, name)}
+        onDelete={deleteFolder}
+        onAddChild={(parent) => addFolder(parent)}
+      />
+    {/each}
+  </ul>
+</nav>
+
+<style>
+  nav { min-width: 16rem; border-right: 1px solid rgba(128, 128, 128, 0.3); padding: 0.5rem; }
+  .head { display: flex; justify-content: space-between; align-items: center; }
+  ul { list-style: none; padding-left: 0; margin: 0.5rem 0 0; }
+  .selected { font-weight: 600; }
+</style>
