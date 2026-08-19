@@ -5,6 +5,7 @@
   import { FileStorageClient } from '@holochain-open-dev/file-storage';
   import { ArkClient } from './ark-client';
   import { clientContext, storeContext } from './contexts';
+  import { connectClient } from './connect';
   import { appletServices } from './we';
   import { TreeStore } from './stores/tree.svelte';
   import { DocumentStore, key } from './stores/documents.svelte';
@@ -52,15 +53,22 @@
         .__ARK_TEST_CLIENT__;
       if (testClient) {
         client = testClient;
-      } else if (isWeaveContext()) {
-        weaveClient = await WeaveClient.connect(appletServices);
-        if (weaveClient.renderInfo.type !== 'applet-view') throw new Error('Unsupported view');
-        client = weaveClient.renderInfo.appletClient;
       } else {
-        if (import.meta.env.DEV) {
-          await initializeHotReload().catch(() => {});
-        }
-        client = await AppWebsocket.connect({ defaultTimeout: 240000 });
+        // Ordering lives in connect.ts and is unit-tested there: hot reload
+        // must be initialised before isWeaveContext() is consulted, or Moss is
+        // never detected in applet-dev.
+        client = await connectClient({
+          isDev: import.meta.env.DEV,
+          isWeaveContext,
+          initializeHotReload,
+          connectWeave: async () => {
+            weaveClient = await WeaveClient.connect(appletServices);
+            if (weaveClient.renderInfo.type !== 'applet-view')
+              throw new Error('Unsupported view');
+            return weaveClient.renderInfo.appletClient;
+          },
+          connectWebsocket: () => AppWebsocket.connect({ defaultTimeout: 240000 }),
+        });
       }
       ark = new ArkClient(client);
       files = new FileStorageClient(client, 'ark');
