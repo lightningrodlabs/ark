@@ -5,6 +5,7 @@ import type {
   DocumentVersion,
   Folder,
   FolderFiling,
+  GetAllOutput,
   Meta,
   TreeHead,
 } from './types';
@@ -52,7 +53,7 @@ export class ArkClient {
     return this.call('get_document', original);
   }
 
-  getAllDocuments(offset: number, limit: number): Promise<DocumentSummary[]> {
+  getAllDocuments(offset: number, limit: number): Promise<GetAllOutput> {
     return this.call('get_all_documents', { offset, limit });
   }
 

@@ -26,6 +26,11 @@ export interface DocumentSummary {
   meta: Meta;
 }
 
+export interface GetAllOutput {
+  total: number;
+  documents: DocumentSummary[];
+}
+
 export interface DocumentVersion {
   action: ActionHash;
   author: AgentPubKey;

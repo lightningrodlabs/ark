@@ -22,7 +22,10 @@ const folders: Folder[] = [
 
 function fakeArk(docs: DocumentSummary[], filings: FolderFiling[], trashed: any[]) {
   return {
-    getAllDocuments: vi.fn(async (o: number, l: number) => docs.slice(o, o + l)),
+    getAllDocuments: vi.fn(async (o: number, l: number) => ({
+      total: docs.length,
+      documents: docs.slice(o, o + l),
+    })),
     getFilings: vi.fn(async (ids: string[]) =>
       ids.map((id) => filings.find((f) => f.folder_id === id) ?? { folder_id: id, documents: [] }),
     ),

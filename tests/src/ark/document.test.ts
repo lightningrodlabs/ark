@@ -13,6 +13,11 @@ type DocumentSummary = {
   meta: Record<string, string>;
 };
 
+type GetAllOutput = {
+  total: number;
+  documents: DocumentSummary[];
+};
+
 const doc = (title: string, body = '## Attendance\nAlice, Bob') => ({
   body,
   meta: { title, date: '2026-08-12' },
@@ -42,17 +47,19 @@ describe('documents', () => {
 
       for (let i = 0; i < 5; i++) await call(alice, 'create_document', doc(`Doc ${i}`));
 
-      const all = await call<DocumentSummary[]>(alice, 'get_all_documents', {
+      const all = await call<GetAllOutput>(alice, 'get_all_documents', {
         offset: 0,
         limit: 100,
       });
-      expect(all).toHaveLength(5);
+      expect(all.total).toEqual(5);
+      expect(all.documents).toHaveLength(5);
 
-      const page = await call<DocumentSummary[]>(alice, 'get_all_documents', {
+      const page = await call<GetAllOutput>(alice, 'get_all_documents', {
         offset: 2,
         limit: 2,
       });
-      expect(page).toHaveLength(2);
+      expect(page.total).toEqual(5);
+      expect(page.documents).toHaveLength(2);
     });
   });
 

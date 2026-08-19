@@ -23,6 +23,15 @@ export class DocumentStore {
   trashed = $state(new Set<string>());
   loaded = $state(0);
   total: number | null = $state(null);
+  /**
+   * Hashes the AllDocuments anchor knows about but that never resolved
+   * locally on this device, after `load` finished paging through the whole
+   * anchor. Every read here is local (`GetOptions::local()`), so "holds the
+   * link but not yet the entry" is the normal state of a peer that just
+   * joined a group with an imported archive — this is how that peer finds
+   * out its view is partial instead of silently seeing a truncated corpus.
+   */
+  missing = $state(0);
   /** Folder list from the last load, so filings can be re-read without it. */
   private lastFolders: Folder[] = [];
 
@@ -31,17 +40,28 @@ export class DocumentStore {
     private chunk: number = ARK_CHUNK,
   ) {}
 
+  /**
+   * Pages through the entire AllDocuments anchor, not just until a page comes
+   * back short. A page can be short because some of its hashes have not
+   * resolved locally yet — links and entries gossip independently — and a
+   * short page is NOT the same thing as the last page. Paging on `total`
+   * (reported by the zome from the anchor's actual link count) rather than on
+   * page length is what keeps an unresolved hash near the front of the
+   * archive from truncating everything after it.
+   */
   async load(folders: Folder[], onChunk?: (loaded: number) => void): Promise<void> {
     const byOriginal = new Map<string, DocumentSummary>();
-    for (let offset = 0; ; offset += this.chunk) {
+    let total = Infinity;
+    for (let offset = 0; offset < total; offset += this.chunk) {
       const page = await this.ark.getAllDocuments(offset, this.chunk);
-      for (const doc of page) byOriginal.set(key(doc.original), doc);
+      total = page.total;
+      for (const doc of page.documents) byOriginal.set(key(doc.original), doc);
       this.byOriginal = new Map(byOriginal);
       this.loaded = byOriginal.size;
       onChunk?.(byOriginal.size);
-      if (page.length < this.chunk) break;
     }
-    this.total = byOriginal.size;
+    this.total = total;
+    this.missing = total - byOriginal.size;
     await this.loadFilings(folders);
     await this.loadTrashed();
   }

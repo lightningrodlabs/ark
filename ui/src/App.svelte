@@ -230,6 +230,13 @@
   {:else if !store || loadingDocs || !signals}
     <p>Loading documents… {loaded}</p>
   {:else}
+    {#if store.missing > 0}
+      <p class="missing-note">
+        {store.missing} document{store.missing === 1 ? '' : 's'}
+        {store.missing === 1 ? 'is' : 'are'} not available on this device yet. They may still be
+        syncing from other peers.
+      </p>
+    {/if}
     <div class="layout">
       <div class="sidebar">
         <FolderTree
@@ -334,4 +341,11 @@
   .toolbar { display: flex; gap: 0.5rem; margin: 0.5rem; }
   .new-doc, .import { margin: 0; }
   .hint { padding: 1rem; opacity: 0.6; }
+  .missing-note {
+    margin: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: #fef3c7;
+    color: #92400e;
+    border-radius: 4px;
+  }
 </style>

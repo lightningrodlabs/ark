@@ -23,13 +23,35 @@ const folders: Folder[] = [
 
 function fakeArk(docs: DocumentSummary[], filings: FolderFiling[], trashed: any[] = []) {
   return {
-    getAllDocuments: vi.fn(async (offset: number, limit: number) =>
-      docs.slice(offset, offset + limit),
-    ),
+    getAllDocuments: vi.fn(async (offset: number, limit: number) => ({
+      total: docs.length,
+      documents: docs.slice(offset, offset + limit),
+    })),
     getFilings: vi.fn(async (ids: string[]) =>
       ids.map((id) => filings.find((f) => f.folder_id === id) ?? { folder_id: id, documents: [] }),
     ),
     getTrashed: vi.fn(async () => trashed),
+    getDocument: vi.fn(async (h: any) => docs.find((d) => key(d.original) === key(h)) ?? null),
+  } as unknown as ArkClient;
+}
+
+/**
+ * A fake whose first page resolves fewer hashes than it is asked for, while
+ * still reporting the true total — the shape `docs.slice(offset, offset +
+ * limit)` can never produce, because a plain slice cannot be short except at
+ * the very end. This is what a peer sees when it holds the AllDocuments link
+ * for a document but has not yet gossiped in its entry.
+ */
+function fakeArkWithGap(docs: DocumentSummary[], unresolved: Set<number>) {
+  return {
+    getAllDocuments: vi.fn(async (offset: number, limit: number) => ({
+      total: docs.length,
+      documents: docs
+        .slice(offset, offset + limit)
+        .filter((_, i) => !unresolved.has(offset + i)),
+    })),
+    getFilings: vi.fn(async () => []),
+    getTrashed: vi.fn(async () => []),
     getDocument: vi.fn(async (h: any) => docs.find((d) => key(d.original) === key(h)) ?? null),
   } as unknown as ArkClient;
 }
@@ -42,6 +64,26 @@ describe('DocumentStore', () => {
     await store.load(folders, (n) => progress.push(n));
     expect(store.byOriginal.size).toEqual(250);
     expect(progress).toEqual([100, 200, 250]);
+  });
+
+  it('keeps paging past a short page that is not the last one, and reports the gap', async () => {
+    // 250 documents; the first page (offset 0, limit 100) resolves only 97 of
+    // them locally. A page-length-based loop reads that short page as
+    // end-of-corpus and stops at 97 — documents 100-249 are never requested.
+    // Paging on the reported `total` instead must still fetch every page.
+    const docs = Array.from({ length: 250 }, (_, i) => summary(i, `Doc ${i}`));
+    const unresolved = new Set([10, 20, 30]);
+    const store = new DocumentStore(fakeArkWithGap(docs, unresolved), 100);
+    await store.load(folders);
+
+    expect(store.total).toEqual(250);
+    expect(store.byOriginal.size).toEqual(247);
+    expect(store.missing).toEqual(3);
+    // Every document outside the unresolved set made it in, including ones
+    // past the short first page.
+    for (let i = 0; i < 250; i++) {
+      expect(store.byOriginal.has(key(hash(i)))).toEqual(!unresolved.has(i));
+    }
   });
 
   it('maps documents to folders and counts them per folder including descendants', async () => {

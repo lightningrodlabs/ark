@@ -16,6 +16,14 @@ pub struct GetAllInput {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GetAllOutput {
+    /// Every document the AllDocuments anchor knows about, resolvable or not.
+    pub total: usize,
+    /// Those in this page that resolved locally. May be shorter than the page.
+    pub documents: Vec<DocumentSummary>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DocumentSummary {
     pub original: ActionHash,
     pub latest: ActionHash,

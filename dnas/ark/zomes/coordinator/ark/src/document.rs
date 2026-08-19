@@ -68,15 +68,16 @@ pub fn all_document_hashes() -> ExternResult<Vec<ActionHash>> {
 }
 
 #[hdk_extern]
-pub fn get_all_documents(input: GetAllInput) -> ExternResult<Vec<DocumentSummary>> {
+pub fn get_all_documents(input: GetAllInput) -> ExternResult<GetAllOutput> {
     let hashes = all_document_hashes()?;
-    let mut out = Vec::new();
+    let total = hashes.len();
+    let mut documents = Vec::new();
     for hash in hashes.into_iter().skip(input.offset).take(input.limit) {
         if let Some(summary) = document_summary(hash)? {
-            out.push(summary);
+            documents.push(summary);
         }
     }
-    Ok(out)
+    Ok(GetAllOutput { total, documents })
 }
 
 #[hdk_extern]
