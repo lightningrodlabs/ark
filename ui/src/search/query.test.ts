@@ -81,23 +81,23 @@ describe('matchesParsed', () => {
   });
 });
 
-// The archive holds a person named Robinhawk as well as a person named Eric.
-// Bare `eric` is prefix-matched by MiniSearch and finds both — correctly, and
+// The archive holds a person named Robinhawk as well as a person named Robin.
+// Bare `robin` is prefix-matched by MiniSearch and finds both — correctly, and
 // that is the useful default (`financ` -> financial, finance, financing). A
 // quoted term and an exclusion are the only way to say the *word*, so they are
 // the ones anchored at word boundaries.
 describe('matchesParsed word boundaries', () => {
-  const eric = 'Eric raised the budget question.';
+  const robin = 'Robin raised the budget question.';
   const robinhawk = 'Robinhawk raised the budget question.';
 
   it('matches a quoted term as a whole word, not as a substring', () => {
-    expect(matchesParsed(eric, parseQuery('"eric"'))).toBe(true);
-    expect(matchesParsed(robinhawk, parseQuery('"eric"'))).toBe(false);
+    expect(matchesParsed(robin, parseQuery('"robin"'))).toBe(true);
+    expect(matchesParsed(robinhawk, parseQuery('"robin"'))).toBe(false);
   });
 
   it('excludes a whole word, keeping a document whose only match is longer', () => {
-    expect(matchesParsed(eric, parseQuery('budget -eric'))).toBe(false);
-    expect(matchesParsed(robinhawk, parseQuery('budget -eric'))).toBe(true);
+    expect(matchesParsed(robin, parseQuery('budget -robin'))).toBe(false);
+    expect(matchesParsed(robinhawk, parseQuery('budget -robin'))).toBe(true);
   });
 
   it('anchors both ends of a multi-word phrase', () => {
@@ -108,29 +108,29 @@ describe('matchesParsed word boundaries', () => {
   // The boundary either side of a match may be the edge of the text rather
   // than a character, which is where an off-by-one would hide.
   it('matches a phrase flush against the start and the end of the text', () => {
-    expect(matchesParsed('Eric', parseQuery('"eric"'))).toBe(true);
-    expect(matchesParsed('Eric spoke', parseQuery('"eric"'))).toBe(true);
-    expect(matchesParsed('spoke to Eric', parseQuery('"eric"'))).toBe(true);
+    expect(matchesParsed('Robin', parseQuery('"robin"'))).toBe(true);
+    expect(matchesParsed('Robin spoke', parseQuery('"robin"'))).toBe(true);
+    expect(matchesParsed('spoke to Robin', parseQuery('"robin"'))).toBe(true);
     expect(matchesParsed('the well pump', parseQuery('"well pump"'))).toBe(true);
     expect(matchesParsed('well pump replaced', parseQuery('"well pump"'))).toBe(true);
   });
 
   it('excludes on a word flush against the start and the end of the text', () => {
-    expect(matchesParsed('Eric', parseQuery('-eric'))).toBe(false);
-    expect(matchesParsed('spoke to Eric', parseQuery('-eric'))).toBe(false);
-    expect(matchesParsed('Robinhawk', parseQuery('-eric'))).toBe(true);
+    expect(matchesParsed('Robin', parseQuery('-robin'))).toBe(false);
+    expect(matchesParsed('spoke to Robin', parseQuery('-robin'))).toBe(false);
+    expect(matchesParsed('Robinhawk', parseQuery('-robin'))).toBe(true);
   });
 
   it('treats punctuation around a word as a boundary', () => {
-    expect(matchesParsed('(Eric) spoke.', parseQuery('"eric"'))).toBe(true);
-    expect(matchesParsed('Ann, Eric, and Bo', parseQuery('"eric"'))).toBe(true);
-    expect(matchesParsed('spoke to Eric.', parseQuery('"eric"'))).toBe(true);
+    expect(matchesParsed('(Robin) spoke.', parseQuery('"robin"'))).toBe(true);
+    expect(matchesParsed('Ann, Robin, and Bo', parseQuery('"robin"'))).toBe(true);
+    expect(matchesParsed('spoke to Robin.', parseQuery('"robin"'))).toBe(true);
   });
 
   it('stays case insensitive on both sides of the boundary', () => {
-    expect(matchesParsed('ERIC spoke', parseQuery('"Eric"'))).toBe(true);
-    expect(matchesParsed('ROBINHAWK spoke', parseQuery('"Eric"'))).toBe(false);
-    expect(matchesParsed('ROBINHAWK spoke', parseQuery('-Eric'))).toBe(true);
+    expect(matchesParsed('ROBIN spoke', parseQuery('"Robin"'))).toBe(true);
+    expect(matchesParsed('ROBINHAWK spoke', parseQuery('"Robin"'))).toBe(false);
+    expect(matchesParsed('ROBINHAWK spoke', parseQuery('-Robin'))).toBe(true);
   });
 });
 
@@ -159,11 +159,11 @@ describe('matchesParsed word characters', () => {
   });
 
   it('counts an underscore as a word character', () => {
-    expect(matchesParsed('see eric_bear', parseQuery('"eric"'))).toBe(false);
+    expect(matchesParsed('see robin_hawk', parseQuery('"robin"'))).toBe(false);
   });
 
   it('lets an apostrophe end a word, so a possessive still matches', () => {
-    expect(matchesParsed("Eric's report was filed", parseQuery('"eric"'))).toBe(true);
+    expect(matchesParsed("Robin's report was filed", parseQuery('"robin"'))).toBe(true);
     expect(matchesParsed("O'Brien chaired", parseQuery('"o\'brien"'))).toBe(true);
     expect(matchesParsed("O'Brien chaired", parseQuery('"brien"'))).toBe(true);
   });
@@ -176,6 +176,6 @@ describe('matchesParsed word characters', () => {
   // A phrase whose own edge is punctuation brings its boundary with it;
   // demanding a second one there would make it unmatchable.
   it('does not demand a boundary where the query itself has punctuation', () => {
-    expect(matchesParsed('the (Eric) note', parseQuery('"(eric)"'))).toBe(true);
+    expect(matchesParsed('the (Robin) note', parseQuery('"(robin)"'))).toBe(true);
   });
 });

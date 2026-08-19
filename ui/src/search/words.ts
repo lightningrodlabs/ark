@@ -13,7 +13,7 @@
  * the word Jos would claim a match in a document that only says José.
  *
  * Apostrophe and hyphen are NOT word characters. They separate, which is what
- * makes `"eric"` match "Eric's report" and `"jean"` match "Jean-Luc". The
+ * makes `"robin"` match "Robin's report" and `"jean"` match "Jean-Luc". The
  * cost is the other direction — `-o` excludes a document containing O'Brien —
  * and that trade is deliberate: possessives are everywhere in minutes and a
  * single letter as a query term is vanishingly rare.

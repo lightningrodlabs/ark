@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createDocument, createRootFolder, selectFolder } from './helpers';
 
-// The reported bug: a user imported the full corpus, searched for "eric",
+// The reported bug: a user imported the full corpus, searched for a common first name,
 // and saw nothing — despite 943 of 1406 documents containing it. The index
 // itself was fine (see ui/src/search/index.test.ts). The cause was
 // App.svelte passing the tree's *selected* folder straight through to
@@ -20,7 +20,7 @@ async function seed(page: any) {
   await selectFolder(page, 'Finance');
   await createDocument(page, {
     title: 'Finance minutes',
-    body: 'The treasurer introduced eric as the new signatory.',
+    body: 'The treasurer introduced Robin as the new signatory.',
     date: '2026-01-05',
   });
 
@@ -33,7 +33,7 @@ test('selecting a folder in the tree does not scope search results', async ({ pa
   // "Legal" is selected in the tree (no documents filed there). The term only
   // appears in a document filed under "Finance".
   const search = page.locator('input[type="search"]');
-  await search.fill('eric');
+  await search.fill('robin');
 
   await expect(page.locator('.bar .count')).toHaveText('1 result');
   await expect(page.locator('.search-popup .panel li.result', { hasText: 'Finance minutes' })).toBeVisible();
@@ -44,7 +44,7 @@ test('a folder scope chip is offered, narrows results when turned on, and widens
 }) => {
   await seed(page);
   const search = page.locator('input[type="search"]');
-  await search.fill('eric');
+  await search.fill('robin');
   await expect(page.locator('.bar .count')).toHaveText('1 result');
 
   // Opt-in: offered because "Legal" is selected in the tree, but not active

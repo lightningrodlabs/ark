@@ -71,7 +71,7 @@ export function parseQuery(raw: string): ParsedQuery {
  * Both are matched as whole words (see `./words`), and that is the entire
  * difference between them and a bare term. A bare term goes to MiniSearch and
  * is prefix- and fuzzy-matched — `financ` finds financial, finance and
- * financing, and `eric` finds Robinhawk. That is the useful default and it is
+ * financing, and `robin` finds Robinhawk. That is the useful default and it is
  * untouched here, because bare terms are in `parsed.terms` and this function
  * never looks at them. Quoting a term or excluding it is how you ask for the
  * word itself, and before this was anchored there was no way to ask at all.
