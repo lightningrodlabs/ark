@@ -5,7 +5,7 @@ everything here applies every time.
 
 ## The project
 
-`ark` is a Moss tool (Holochain 0.7 / Moss 0.16) that archives text for a
+`ark` is a Moss tool (Holochain 0.6 / Moss 0.15 on this branch) that archives text for a
 community — meeting minutes, filed in an amendable folder tree, searchable
 across the whole corpus. It replaces a Drupal site holding 1406 records,
 2001–2026, thirteen committees, 25 attached files.
@@ -48,7 +48,7 @@ the UI probably does.
 ## Constraints
 
 - Do not bump `@sveltejs/vite-plugin-svelte` (`^4.0.4`), `vite` (`^5.4.0`), or
-  `@theweave/api` (`0.7.0-dev.1`).
+  `@theweave/api` (`^0.6.9`).
 - All DNA calls go through `ArkClient`; file storage through `FileStorageClient`.
 - Reactive stores are `.svelte.ts` (Svelte 5 runes only compile there); pure
   logic modules stay plain `.ts` so they are unit-testable.

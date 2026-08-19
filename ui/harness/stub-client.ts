@@ -101,7 +101,7 @@ export function createStubClient(): StubAppClient {
   const attachments = new Map<string, Set<string>>();
   const fileHashByKey = new Map<string, EntryHash>();
 
-  // file_storage zome stand-in (see ../../../file-storage, branch main-0.7,
+  // file_storage zome stand-in (see ../../../file-storage, branch main-0.6,
   // dnas/file_storage_provider). Content-addressing is not reproduced —
   // like the rest of this stub, chunks and metadata just get a fresh
   // `nextHash()` — but the shapes match what FileStorageClient sends and

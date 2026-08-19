@@ -2,9 +2,9 @@ name: test
 
 on:
   push:
-    branches: [main]
+    branches: [main, main-0.6]
   pull_request:
-    branches: [main]
+    branches: [main, main-0.6]
 
 jobs:
   # Pure-Node gate: vitest + svelte-check, no holochain toolchain. Deliberately
@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.23.1'
+          node-version: '22.22.2'
           cache: npm
       - run: npm ci
         env:
