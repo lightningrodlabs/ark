@@ -3,6 +3,7 @@ import { ARK_CHUNK, type ArkClient } from '../ark-client';
 import type { ArkSignal, DocumentSummary, Folder } from '../types';
 import { descendantIds } from '../tree/paths';
 import { deadFolders } from '../tree/merge';
+import { sameDocuments, sameFilings, sameKeys } from './diff';
 
 /** Map key for any hash. Uint8Array is not usable as a Map key by value. */
 export const key = (hash: ActionHash): string => encodeHashToBase64(hash);
@@ -50,28 +51,50 @@ export class DocumentStore {
    * page length is what keeps an unresolved hash near the front of the
    * archive from truncating everything after it.
    */
-  async load(folders: Folder[], onChunk?: (loaded: number) => void): Promise<void> {
+  async load(folders: Folder[], onChunk?: (loaded: number) => void): Promise<boolean> {
+    // A cold start has never recorded a total. Only then is the growing,
+    // partial map worth publishing: it drives the "Loading documents… N"
+    // counter while there is nothing else on screen. On every later call —
+    // and the five-minute backstop reconcile is the overwhelmingly common
+    // case — publishing partial pages would repaint the whole view once per
+    // 100-document page, each repaint briefly showing a TRUNCATED archive,
+    // before landing back on data identical to what was already there.
+    const cold = this.total === null;
     const byOriginal = new Map<string, DocumentSummary>();
     let total = Infinity;
     for (let offset = 0; offset < total; offset += this.chunk) {
       const page = await this.ark.getAllDocuments(offset, this.chunk);
       total = page.total;
       for (const doc of page.documents) byOriginal.set(key(doc.original), doc);
-      this.byOriginal = new Map(byOriginal);
-      this.loaded = byOriginal.size;
+      if (cold) {
+        this.byOriginal = new Map(byOriginal);
+        this.loaded = byOriginal.size;
+      }
       onChunk?.(byOriginal.size);
     }
+
+    // Assign only on a real difference. `$state` compares by reference for
+    // objects, so handing it an equal-but-new Map is indistinguishable from a
+    // genuine change and invalidates every derivation downstream — the whole
+    // document list, folder counts, orphan bins and trash view.
+    let changed = false;
+    if (!sameDocuments(this.byOriginal, byOriginal)) {
+      this.byOriginal = byOriginal;
+      changed = true;
+    }
+    this.loaded = byOriginal.size;
     this.total = total;
     this.missing = total - byOriginal.size;
-    await this.loadFilings(folders);
-    await this.loadTrashed();
+    if (await this.loadFilings(folders)) changed = true;
+    if (await this.loadTrashed()) changed = true;
+    return changed;
   }
 
   /**
    * Filings are read for every folder id including tombstoned ones — that is
    * what makes documents under a deleted folder findable rather than lost.
    */
-  async loadFilings(folders: Folder[]): Promise<void> {
+  async loadFilings(folders: Folder[]): Promise<boolean> {
     this.lastFolders = folders;
     const filings = new Map<string, string | null>();
     for (const original of this.byOriginal.keys()) filings.set(original, null);
@@ -79,11 +102,16 @@ export class DocumentStore {
     for (const filing of results) {
       for (const doc of filing.documents) filings.set(key(doc), filing.folder_id);
     }
+    if (sameFilings(this.filings, filings)) return false;
     this.filings = filings;
+    return true;
   }
 
-  async loadTrashed(): Promise<void> {
-    this.trashed = new Set((await this.ark.getTrashed()).map(key));
+  async loadTrashed(): Promise<boolean> {
+    const trashed = new Set((await this.ark.getTrashed()).map(key));
+    if (sameKeys(this.trashed, trashed)) return false;
+    this.trashed = trashed;
+    return true;
   }
 
   /**
@@ -99,12 +127,17 @@ export class DocumentStore {
    * comparing to the previously-recorded total means only a genuine new
    * document trips it. The trash side mirrors this with `this.trashed.size`.
    *
-   * This is a coarse signal, not a full diff: a document trashed and another
-   * restored in the same window can leave the trash *count* unchanged even
-   * though membership changed, and a create paired with a trash can (in
-   * pathological cases) do the same. That gap is intentional — see the
-   * unconditional timer-triggered reconcile in `reconcile.ts`, which exists
-   * specifically to catch what this check cannot.
+   * The trash side compares *membership*, not just the count. `get_trashed`
+   * already returns the hashes, so the set comparison is free, and it closes
+   * what used to be a real blind spot: one document trashed and a different
+   * one restored in the same window leaves the count identical while the
+   * membership has entirely moved.
+   *
+   * What remains invisible here is an AMENDMENT. It creates no link on the
+   * AllDocuments anchor and touches no trash link, so neither the total nor
+   * the trash set moves, and no amount of sharpening this check will see it.
+   * That single remaining gap is what the periodic unconditional sweep in
+   * `reconcile.ts` exists to close.
    */
   async changedSince(): Promise<boolean> {
     const [remote, trashed] = await Promise.all([
@@ -112,7 +145,7 @@ export class DocumentStore {
       this.ark.getTrashed(),
     ]);
     if (remote.total !== this.total) return true;
-    if (trashed.length !== this.trashed.size) return true;
+    if (!sameKeys(new Set(trashed.map(key)), this.trashed)) return true;
     return false;
   }
 

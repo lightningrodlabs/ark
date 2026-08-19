@@ -2,7 +2,7 @@ import { v4 as uuid } from 'uuid';
 import type { ActionHash } from '@holochain/client';
 import type { ArkClient } from '../ark-client';
 import type { Folder } from '../types';
-import { liveFolders, mergeHeads } from '../tree/merge';
+import { liveFolders, mergeHeads, sameFolders } from '../tree/merge';
 
 /**
  * Holds the merged tree. `folders` keeps tombstones because the orphan bin in
@@ -25,10 +25,21 @@ export class TreeStore {
     return liveFolders(this.folders);
   }
 
-  async load(): Promise<void> {
+  /**
+   * Returns whether the merged tree actually differs from what is held.
+   *
+   * Like DocumentStore.load, this assigns only on a real change: `folders` is
+   * a `$state` array compared by reference, so handing it an equal-but-new
+   * array on every five-minute reconcile invalidated the whole folder pane
+   * and every per-folder count derived from it.
+   */
+  async load(): Promise<boolean> {
     this.loading = true;
     try {
-      this.folders = mergeHeads(await this.ark.getFolderTree());
+      const folders = mergeHeads(await this.ark.getFolderTree());
+      if (sameFolders(this.folders, folders)) return false;
+      this.folders = folders;
+      return true;
     } finally {
       this.loading = false;
     }

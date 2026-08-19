@@ -73,3 +73,29 @@ function deadPredicate(folders: Folder[]): (folder: Folder) => boolean {
     return false;
   };
 }
+
+/**
+ * Whether two merged trees are identical field for field.
+ *
+ * `mergeHeads` sorts deterministically, so a positional walk is enough — two
+ * equal trees can never come back in different orders. Used by TreeStore.load
+ * to avoid replacing the reactive folder array (and so repainting the whole
+ * folder pane) on a reconcile that found nothing new.
+ */
+export function sameFolders(a: Folder[], b: Folder[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.id !== y.id ||
+      x.name !== y.name ||
+      x.parent !== y.parent ||
+      x.order !== y.order ||
+      x.deleted !== y.deleted
+    )
+      return false;
+  }
+  return true;
+}

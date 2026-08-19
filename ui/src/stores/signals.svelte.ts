@@ -7,6 +7,7 @@ import {
 import type { WeaveClient } from '@theweave/api';
 import type { ArkClient } from '../ark-client';
 import type { ArkSignal } from '../types';
+import type { ReconcileSource } from '../reconcile';
 
 export function peersExcludingSelf(all: AgentPubKey[], me: AgentPubKey): AgentPubKey[] {
   const mine = encodeHashToBase64(me);
@@ -18,6 +19,17 @@ export const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Minimum gap between reconciles, however they were triggered. */
 export const RECONCILE_MIN_GAP_MS = 60 * 1000;
+
+/**
+ * One tick in every this many is a `sweep` — an unconditional full reload —
+ * rather than an ordinary `timer` tick that checks `changedSince()` first.
+ *
+ * Six ticks at five minutes puts the unconditional pass on a thirty-minute
+ * bound. It only has to catch what `changedSince()` structurally cannot see,
+ * which is an amendment made by a peer whose signal was dropped; creates,
+ * trashes and restores are all caught exactly on the five-minute tick.
+ */
+export const FULL_SWEEP_EVERY = 6;
 
 /**
  * Remote signals are best-effort: a peer that was offline, or a signal that was
@@ -34,12 +46,11 @@ export class SignalStore {
     private ark: ArkClient,
     private onSignal: (signal: ArkSignal) => void | Promise<void>,
     /**
-     * `source` distinguishes a focus-triggered call, which the callback is
-     * expected to make cheap (skip the full reload when nothing changed),
-     * from a timer-triggered one, which is the unconditional backstop — see
-     * `reconcile.ts`.
+     * `source` tells the callback how much work it is allowed to skip.
+     * `focus` and `timer` may take the cheap path; `sweep` is the periodic
+     * unconditional backstop — see `reconcile.ts`.
      */
-    private onReconcile: (source: 'focus' | 'timer') => void | Promise<void>,
+    private onReconcile: (source: ReconcileSource) => void | Promise<void>,
   ) {}
 
   start(): void {
@@ -51,7 +62,11 @@ export class SignalStore {
       }
     });
     window.addEventListener('focus', this.focusHandler);
-    this.timer = setInterval(() => void this.maybeReconcile('timer'), RECONCILE_INTERVAL_MS);
+    this.timer = setInterval(() => {
+      this.ticks += 1;
+      const source = this.ticks % FULL_SWEEP_EVERY === 0 ? 'sweep' : 'timer';
+      void this.maybeReconcile(source);
+    }, RECONCILE_INTERVAL_MS);
   }
 
   stop(): void {
@@ -71,7 +86,8 @@ export class SignalStore {
    * already reconciled, so both routes share one floor.
    */
   private lastReconcileAt = 0;
-  private async maybeReconcile(source: 'focus' | 'timer'): Promise<void> {
+  private ticks = 0;
+  private async maybeReconcile(source: ReconcileSource): Promise<void> {
     const now = Date.now();
     if (now - this.lastReconcileAt < RECONCILE_MIN_GAP_MS) return;
     this.lastReconcileAt = now;

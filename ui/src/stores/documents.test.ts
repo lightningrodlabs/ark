@@ -224,20 +224,142 @@ describe('DocumentStore', () => {
       expect(await store.changedSince()).toBe(true);
     });
 
-    it('documents the known blind spot: a trash/restore swap that leaves the count unchanged', async () => {
+    it('sees a trash/restore swap that leaves the trash count unchanged', async () => {
       // hash(2) is trashed, hash(1) is not. Between two checks, hash(2) is
       // restored and hash(1) is trashed instead: no document was created (the
-      // total does not move) and the trash *count* is still 1 (only the
-      // *member* changed). changedSince has no way to see this with two
-      // counters — it is why the timer-triggered reconcile stays
-      // unconditional rather than relying on this check; see reconcile.ts.
+      // total does not move) and the trash *count* is still 1 — only the
+      // *member* changed. `get_trashed` already returns the hashes, not just a
+      // count, so comparing membership costs nothing extra and closes what
+      // used to be a documented blind spot.
       const docs = [summary(1, 'One'), summary(2, 'Two')];
       const ark = fakeArk(docs, [], [hash(2)]);
       const store = new DocumentStore(ark, 100);
       await store.load(folders);
 
       ark.getTrashed = async () => [hash(1)] as any;
+      expect(await store.changedSince()).toBe(true);
+    });
+
+    it('cannot see an amendment, which is what the periodic full sweep is for', async () => {
+      // An amendment moves neither the document total nor the trash set, so
+      // no counter-or-membership check can catch it. This is the remaining
+      // gap the unconditional sweep in reconcile.ts exists to close.
+      const docs = [summary(1, 'One')];
+      const ark = fakeArk(docs, []);
+      const store = new DocumentStore(ark, 100);
+      await store.load(folders);
+
+      docs[0] = { ...docs[0], latest: hash(99), body: 'amended' };
       expect(await store.changedSince()).toBe(false);
+    });
+  });
+
+  describe('reload without change', () => {
+    // The five-minute backstop reconcile calls load() again on data that has
+    // usually not moved. load() used to assign a brand-new Map to every
+    // reactive field every time, so Svelte tore down and repainted the whole
+    // view on a timer even when the archive was byte-identical. These specs
+    // pin the fix: identical data must leave the reactive fields untouched,
+    // by object identity.
+    const build = () => {
+      const docs = [summary(1, 'One'), summary(2, 'Two'), summary(3, 'Three')];
+      const filings: FolderFiling[] = [
+        { folder_id: 'root', documents: [hash(1)] },
+        { folder_id: 'child', documents: [hash(2)] },
+      ];
+      const ark = fakeArk(docs, filings, [hash(3)]);
+      return { docs, filings, ark, store: new DocumentStore(ark, 2) };
+    };
+
+    it('keeps the same byOriginal, filings and trashed objects when nothing changed', async () => {
+      const { store } = build();
+      await store.load(folders);
+      const docsBefore = store.byOriginal;
+      const filingsBefore = store.filings;
+      const trashedBefore = store.trashed;
+
+      const changed = await store.load(folders);
+
+      expect(changed).toBe(false);
+      expect(store.byOriginal).toBe(docsBefore);
+      expect(store.filings).toBe(filingsBefore);
+      expect(store.trashed).toBe(trashedBefore);
+    });
+
+    it('does not reassign byOriginal part-way through paging on a reload', async () => {
+      // The corpus is paged 2 at a time, so the old code assigned a growing
+      // partial map twice before landing on the full one — each assignment a
+      // full repaint showing a truncated archive. A reload must never expose
+      // a partial map at all.
+      const { store } = build();
+      await store.load(folders);
+      const docsBefore = store.byOriginal;
+      const seen: number[] = [];
+
+      await store.load(folders, () => seen.push(store.byOriginal.size));
+
+      expect(seen.every((n) => n === 3)).toBe(true);
+      expect(store.byOriginal).toBe(docsBefore);
+    });
+
+    it('does assign a new byOriginal when a document was added', async () => {
+      const { docs, store } = build();
+      await store.load(folders);
+      const docsBefore = store.byOriginal;
+
+      docs.push(summary(4, 'Four'));
+      const changed = await store.load(folders);
+
+      expect(changed).toBe(true);
+      expect(store.byOriginal).not.toBe(docsBefore);
+      expect(store.byOriginal.size).toEqual(4);
+    });
+
+    it('does assign a new byOriginal when a document was amended', async () => {
+      const { docs, store } = build();
+      await store.load(folders);
+      const docsBefore = store.byOriginal;
+
+      // Same key, new `latest` — the shape an amendment takes.
+      docs[0] = { ...docs[0], latest: hash(99), body: 'amended' };
+      const changed = await store.load(folders);
+
+      expect(changed).toBe(true);
+      expect(store.byOriginal).not.toBe(docsBefore);
+    });
+
+    it('does assign new filings when a document moved folder', async () => {
+      const { filings, store } = build();
+      await store.load(folders);
+      const filingsBefore = store.filings;
+
+      filings[0] = { folder_id: 'root', documents: [] };
+      filings[1] = { folder_id: 'child', documents: [hash(1), hash(2)] };
+      const changed = await store.load(folders);
+
+      expect(changed).toBe(true);
+      expect(store.filings).not.toBe(filingsBefore);
+    });
+
+    it('does assign a new trashed set when trash membership moved', async () => {
+      const { ark, store } = build();
+      await store.load(folders);
+      const trashedBefore = store.trashed;
+
+      ark.getTrashed = async () => [hash(2)] as any;
+      const changed = await store.load(folders);
+
+      expect(changed).toBe(true);
+      expect(store.trashed).not.toBe(trashedBefore);
+    });
+
+    it('still assigns progressively on the very first load', async () => {
+      // The progressive repaint is what drives the "Loading documents… N"
+      // counter on a cold start, and must survive the fix.
+      const { store } = build();
+      const seen: number[] = [];
+      await store.load(folders, () => seen.push(store.byOriginal.size));
+      expect(seen).toEqual([2, 3]);
     });
   });
 

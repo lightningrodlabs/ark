@@ -18,6 +18,7 @@
     "@holochain-open-dev/file-storage": "0.700.0-dev.0",
     "@holochain-open-dev/profiles": "^0.701.0",
     "@holochain/client": "^0.21.0",
+    "@shoelace-style/shoelace": "^2.20.1",
     "@theweave/api": "0.7.0-dev.1",
     "diff": "^5.2.0",
     "dompurify": "^3.4.13",
