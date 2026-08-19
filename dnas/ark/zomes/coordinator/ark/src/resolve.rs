@@ -57,12 +57,12 @@ pub fn latest_of(original: ActionHash) -> ExternResult<Option<Record>> {
 pub fn all_tips(original: ActionHash) -> ExternResult<Vec<Record>> {
     let mut tips = Vec::new();
     let mut frontier = vec![original];
-    let mut seen: Vec<ActionHash> = Vec::new();
+    let mut seen: std::collections::HashSet<ActionHash> = std::collections::HashSet::new();
     while let Some(current) = frontier.pop() {
         if seen.contains(&current) {
             continue;
         }
-        seen.push(current.clone());
+        seen.insert(current.clone());
         let Some(Details::Record(details)) = get_details(current.clone(), GetOptions::local())?
         else {
             continue;
@@ -87,12 +87,12 @@ pub fn all_tips(original: ActionHash) -> ExternResult<Vec<Record>> {
 pub fn version_chain(original: ActionHash) -> ExternResult<Vec<Record>> {
     let mut records: Vec<Record> = Vec::new();
     let mut frontier = vec![original.clone()];
-    let mut seen: Vec<ActionHash> = Vec::new();
+    let mut seen: std::collections::HashSet<ActionHash> = std::collections::HashSet::new();
     while let Some(current) = frontier.pop() {
         if seen.contains(&current) {
             continue;
         }
-        seen.push(current.clone());
+        seen.insert(current.clone());
         let Some(Details::Record(details)) = get_details(current, GetOptions::local())? else {
             continue;
         };
