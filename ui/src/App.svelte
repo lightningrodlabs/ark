@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, setContext } from 'svelte';
+  import { onDestroy, onMount, setContext } from 'svelte';
   import { AppWebsocket, encodeHashToBase64, type AppClient } from '@holochain/client';
   import { WeaveClient, initializeHotReload, isWeaveContext } from '@theweave/api';
   import { FileStorageClient } from '@holochain-open-dev/file-storage';
@@ -9,6 +9,7 @@
   import { TreeStore } from './stores/tree.svelte';
   import { DocumentStore, key } from './stores/documents.svelte';
   import { SearchStore } from './stores/search.svelte';
+  import { SignalStore } from './stores/signals.svelte';
   import { trashEntries, type TrashEntry } from './stores/orphans';
   import type { ActionHash } from '@holochain/client';
   import type { DocumentSummary } from './types';
@@ -27,6 +28,8 @@
   let tree: TreeStore | undefined = $state();
   let store: DocumentStore | undefined = $state();
   let search: SearchStore | undefined = $state();
+  let signals: SignalStore | undefined = $state();
+  let weaveClient: WeaveClient | undefined;
   let loadingDocs = $state(true);
   let loaded = $state(0);
   let selectedFolder: string | null = $state(null);
@@ -43,7 +46,7 @@
         await initializeHotReload().catch(() => {});
       }
       if (isWeaveContext()) {
-        const weaveClient = await WeaveClient.connect(appletServices);
+        weaveClient = await WeaveClient.connect(appletServices);
         if (weaveClient.renderInfo.type !== 'applet-view') throw new Error('Unsupported view');
         client = weaveClient.renderInfo.appletClient;
       } else {
@@ -58,10 +61,40 @@
       search = new SearchStore(store);
       search.rebuild();
       loadingDocs = false;
+
+      const currentStore = store;
+      const currentTree = tree;
+      const currentSearch = search;
+      signals = new SignalStore(
+        client,
+        ark,
+        async (signal) => {
+          await currentStore.applySignal(signal);
+          if (signal.type === 'TreeUpdated') await currentTree.load();
+          if (signal.type === 'DocumentCreated' || signal.type === 'DocumentAmended') {
+            const doc = currentStore.byOriginal.get(key(signal.original));
+            if (doc) currentSearch.upsert(doc);
+          }
+          currentSearch.sync();
+        },
+        async () => {
+          await currentTree.load();
+          await currentStore.load(currentTree.folders);
+          currentSearch.rebuild();
+        },
+      );
+      currentTree.onUpdate = (action) => void signals?.broadcast({ type: 'TreeUpdated', action });
+      signals.start();
+      await signals.refreshPeers(weaveClient, client.myPubKey);
+      weaveClient?.onPeerStatusUpdate(() => {
+        void signals?.refreshPeers(weaveClient, client.myPubKey);
+      });
     } catch (e) {
       error = String(e);
     }
   });
+
+  onDestroy(() => signals?.stop());
 
   // Root selection ("All documents") shows everything not trashed; a folder
   // selection narrows to that folder's subtree via the store.
@@ -119,6 +152,7 @@
     const original = selectedDoc.original;
     await ark.trashDocument(original);
     await store.applySignal({ type: 'DocumentTrashed', original });
+    await signals?.broadcast({ type: 'DocumentTrashed', original });
     search?.sync();
     selectedDoc = null;
   }
@@ -127,6 +161,7 @@
     if (!ark || !store) return;
     await ark.restoreDocument(original);
     await store.applySignal({ type: 'DocumentRestored', original });
+    await signals?.broadcast({ type: 'DocumentRestored', original });
     search?.sync();
   }
 
@@ -137,6 +172,7 @@
     if (!ark || !store) return;
     await ark.moveDocument({ original, from, to });
     await store.applySignal({ type: 'DocumentMoved', original, from, to });
+    await signals?.broadcast({ type: 'DocumentMoved', original, from, to });
     search?.sync();
   }
 
@@ -167,7 +203,7 @@
     <p class="error">{error}</p>
   {:else if !tree || !ark}
     <p>Connecting…</p>
-  {:else if !store || loadingDocs}
+  {:else if !store || loadingDocs || !signals}
     <p>Loading documents… {loaded}</p>
   {:else}
     <div class="layout">
@@ -175,6 +211,7 @@
         <FolderTree
           {tree}
           {ark}
+          {signals}
           selected={selectedFolder}
           counts={store.counts(tree.live)}
           onSelect={selectFolder}
@@ -228,6 +265,7 @@
       {#if editing === 'create'}
         <DocumentEditor
           {ark}
+          {signals}
           mode="create"
           folderId={selectedFolder}
           onDone={onEditorDone}
@@ -236,6 +274,7 @@
       {:else if editing === 'amend' && selectedDoc}
         <DocumentEditor
           {ark}
+          {signals}
           mode="amend"
           doc={selectedDoc}
           folderId={selectedFolder}

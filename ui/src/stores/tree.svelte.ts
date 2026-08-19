@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+import type { ActionHash } from '@holochain/client';
 import type { ArkClient } from '../ark-client';
 import type { Folder } from '../types';
 import { liveFolders, mergeHeads } from '../tree/merge';
@@ -11,6 +12,12 @@ import { liveFolders, mergeHeads } from '../tree/merge';
 export class TreeStore {
   folders: Folder[] = $state([]);
   loading = $state(false);
+  /**
+   * Set by the app once the signal store exists (constructed after this
+   * store, so it cannot be a constructor dependency). Called with the write's
+   * action hash so every tree write broadcasts `TreeUpdated`.
+   */
+  onUpdate?: (action: ActionHash) => void;
 
   constructor(private ark: ArkClient) {}
 
@@ -29,8 +36,9 @@ export class TreeStore {
 
   /** Writes the merged result, which collapses any fork on the next read. */
   private async save(folders: Folder[]): Promise<void> {
-    await this.ark.updateFolderTree(folders);
+    const action = await this.ark.updateFolderTree(folders);
     this.folders = folders;
+    this.onUpdate?.(action);
   }
 
   async addFolder(name: string, parent: string | null = null): Promise<string> {

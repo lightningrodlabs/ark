@@ -1,12 +1,14 @@
 <script lang="ts">
   import type { ActionHash } from '@holochain/client';
   import type { ArkClient } from '../ark-client';
+  import type { SignalStore } from '../stores/signals.svelte';
   import type { DocumentSummary, Meta } from '../types';
   import { htmlToMarkdown } from '../paste/gdocs';
   import { renderMarkdown } from '../render';
 
   let {
     ark,
+    signals,
     mode,
     doc,
     folderId,
@@ -14,6 +16,7 @@
     onCancel,
   }: {
     ark: ArkClient;
+    signals: SignalStore;
     mode: 'create' | 'amend';
     doc?: DocumentSummary;
     folderId: string | null;
@@ -53,9 +56,12 @@
     try {
       const meta: Meta = { ...(doc?.meta ?? {}), title, date };
       if (mode === 'create') {
-        onDone(await ark.createDocument({ body, meta, folder_id: folderId }));
+        const original = await ark.createDocument({ body, meta, folder_id: folderId });
+        await signals.broadcast({ type: 'DocumentCreated', original });
+        onDone(original);
       } else {
-        await ark.amendDocument({ original: doc!.original, body, meta });
+        const new_version = await ark.amendDocument({ original: doc!.original, body, meta });
+        await signals.broadcast({ type: 'DocumentAmended', original: doc!.original, new_version });
         onDone(doc!.original);
       }
     } catch (e) {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ArkClient } from '../ark-client';
+  import type { SignalStore } from '../stores/signals.svelte';
   import type { TreeStore } from '../stores/tree.svelte';
   import { planFolderDeletion } from '../tree/deletion';
   import FolderNode from './FolderNode.svelte';
@@ -7,12 +8,14 @@
   let {
     tree,
     ark,
+    signals,
     selected,
     counts = {},
     onSelect,
   }: {
     tree: TreeStore;
     ark: ArkClient;
+    signals: SignalStore;
     selected: string | null;
     counts?: Record<string, number>;
     onSelect: (id: string | null) => void;
@@ -52,6 +55,12 @@
     try {
       for (const move of plan.moves) {
         await ark.moveDocument({ original: move.original, from: move.from, to: move.to });
+        await signals.broadcast({
+          type: 'DocumentMoved',
+          original: move.original,
+          from: move.from,
+          to: move.to,
+        });
       }
     } catch (e) {
       alert(`Could not move the documents out of this folder, so it was not deleted.\n\n${e}`);
