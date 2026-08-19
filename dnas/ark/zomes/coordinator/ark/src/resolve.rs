@@ -78,12 +78,15 @@ pub fn all_tips(original: ActionHash) -> ExternResult<Vec<Record>> {
     Ok(tips)
 }
 
-/// EVERY version in the update graph, oldest first — not just the winning path.
-/// Ordering matches `pick_head`'s rule (timestamp, then hash bytes) so the last
-/// element is always the same record `latest_of` returns.
+/// Ordering is by (timestamp, then hash bytes), with one guarantee added on top:
+/// the record `latest_of` resolves to is moved to the end. Sorting alone does NOT
+/// put a tip last — Holochain timestamps come from each author's own clock, so a
+/// slow-clocked agent amending a fast-clocked agent's version leaves an internal
+/// node holding the global maximum. The UI would then show one version as current
+/// while marking a different one newest in the history.
 pub fn version_chain(original: ActionHash) -> ExternResult<Vec<Record>> {
     let mut records: Vec<Record> = Vec::new();
-    let mut frontier = vec![original];
+    let mut frontier = vec![original.clone()];
     let mut seen: Vec<ActionHash> = Vec::new();
     while let Some(current) = frontier.pop() {
         if seen.contains(&current) {
@@ -108,5 +111,18 @@ pub fn version_chain(original: ActionHash) -> ExternResult<Vec<Record>> {
                     .cmp(b.action_address().get_raw_39())
             })
     });
+
+    // Put the resolved current version last, so position and `latest_of` cannot
+    // disagree under clock skew.
+    if let Some(latest) = latest_of(original)? {
+        let latest_hash = latest.action_address().clone();
+        if let Some(at) = records
+            .iter()
+            .position(|r| r.action_address() == &latest_hash)
+        {
+            let current = records.remove(at);
+            records.push(current);
+        }
+    }
     Ok(records)
 }
