@@ -146,17 +146,25 @@
     importing = false;
   }
 
-  function openImport() {
-    importing = true;
-    editing = null;
-    selectedDoc = null;
+  // Toggled from the toolbar. Opening also backs out of any open editor/doc
+  // view; closing is left to the user (see onImportDone below) rather than
+  // happening automatically after a run, so the completed summary — created,
+  // skipped, attached, any failures — actually stays on screen to be read.
+  function toggleImport() {
+    if (importing) {
+      importing = false;
+    } else {
+      importing = true;
+      editing = null;
+      selectedDoc = null;
+    }
   }
 
   // ImportPanel has already reloaded the document store and created any new
   // folders by the time onDone fires; only the search index needs rebuilding.
+  // Deliberately does not close the panel — see toggleImport.
   function onImportDone() {
     search?.rebuild();
-    importing = false;
   }
 
   function amendDoc() {
@@ -257,7 +265,7 @@
       <div class="list-column">
         <div class="toolbar">
           <button class="new-doc" onclick={newDoc}>New document</button>
-          <button class="import" onclick={openImport}>Import</button>
+          <button class="import" onclick={toggleImport}>{importing ? 'Close import' : 'Import'}</button>
         </div>
         {#if search}
           <SearchBar {search} resultCount={searchResults.length} {authors} />
@@ -281,8 +289,8 @@
           />
         {/if}
       </div>
-      {#if importing && ark && store}
-        <ImportPanel {ark} {tree} {store} onDone={onImportDone} />
+      {#if importing && ark && store && files}
+        <ImportPanel {ark} {tree} {store} fileStorage={files} onDone={onImportDone} />
       {:else if editing === 'create'}
         <DocumentEditor
           {ark}

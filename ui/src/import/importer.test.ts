@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { planImport, runImport } from './importer';
+import { matchAttachments, planImport, runImport } from './importer';
 import type { DocumentSummary, Folder } from '../types';
 
 const file = (name: string, text: string) => ({ name, text });
@@ -8,6 +8,17 @@ const minutes = (node: number, committee: string, date: string) =>
   file(
     `${date} ${committee}.md`,
     `---\ntitle: "${committee} Minutes: ${date}"\ncommittee: ${committee}\nmeeting_date: ${date}\ndrupal_node: ${node}\n---\n\nBody for ${node}.\n`,
+  );
+
+const minutesWithAttachment = (
+  node: number,
+  committee: string,
+  date: string,
+  attachment: string,
+) =>
+  file(
+    `${date} ${committee}.md`,
+    `---\ntitle: "${committee} Minutes: ${date}"\ncommittee: ${committee}\nmeeting_date: ${date}\ndrupal_node: ${node}\nattachments:\n  - "${attachment}"\n---\n\nBody for ${node}.\n`,
   );
 
 const folders: Folder[] = [
@@ -96,5 +107,41 @@ describe('runImport', () => {
     const result = await runImport(plan, { ark: ark as any, tree: tree as any, folders });
     expect(ark.createDocument).not.toHaveBeenCalled();
     expect(result.created).toEqual(0);
+  });
+});
+
+describe('matchAttachments', () => {
+  it('matches a document whose named attachment is present among the picked files', () => {
+    const plan = planImport(
+      [minutesWithAttachment(1, 'Finance and Legal', '2026-01-01', 'budget.pdf')],
+      [],
+      folders,
+    );
+    const budget = new File(['x'], 'budget.pdf');
+    const matches = matchAttachments(plan.create, [{ name: 'budget.pdf', file: budget }]);
+    expect(matches.get(plan.create[0].import_id)).toEqual([budget]);
+  });
+
+  it('leaves a document unmatched when its named attachment was not among the picked files', () => {
+    const plan = planImport(
+      [minutesWithAttachment(2, 'Finance and Legal', '2026-01-02', 'roster.pdf')],
+      [],
+      folders,
+    );
+    const matches = matchAttachments(plan.create, []);
+    expect(matches.has(plan.create[0].import_id)).toBe(false);
+  });
+
+  it('matches by basename when the picked file carries a directory prefix', () => {
+    const plan = planImport(
+      [minutesWithAttachment(3, 'Finance and Legal', '2026-01-03', 'roster.pdf')],
+      [],
+      folders,
+    );
+    const roster = new File(['x'], 'roster.pdf');
+    const matches = matchAttachments(plan.create, [
+      { name: 'finance-and-legal/roster.pdf', file: roster },
+    ]);
+    expect(matches.get(plan.create[0].import_id)).toEqual([roster]);
   });
 });
