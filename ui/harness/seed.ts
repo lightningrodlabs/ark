@@ -1,4 +1,4 @@
-import type { ActionHash } from '@holochain/client';
+import type { ActionHash, EntryHash } from '@holochain/client';
 import type { StubAppClient } from './stub-client';
 
 /** Thirteen committees, as the Drupal archive being replaced has. */
@@ -77,4 +77,84 @@ export async function seedAssetDocument(client: StubAppClient): Promise<ActionHa
     meta: { title: ASSET_DOCUMENT_TITLE, date: '2026-01-15' },
     folder_id: null,
   })) as ActionHash;
+}
+
+/** Fixed name/content the asset-view attachment specs assert against. */
+export const ASSET_TEXT_ATTACHMENT_NAME = 'agenda.txt';
+export const ASSET_TEXT_ATTACHMENT_CONTENT = 'Item 1: Call to order.\nItem 2: Approve minutes.';
+export const ASSET_IMAGE_ATTACHMENT_NAME = 'photo.png';
+// A 1x1 PNG — the smallest thing that still proves the bytes round-tripped
+// through file storage, the blob URL, and the decoder (see
+// attachments.spec.ts's image-preview regression test, which this mirrors).
+const ASSET_IMAGE_ATTACHMENT_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+/**
+ * Upload one small file straight against the stub's file_storage handlers
+ * (`create_file_chunk` / `create_file_metadata`), mirroring the payload
+ * shapes `FileStorageClient.uploadFile` sends for a single-chunk file (see
+ * stub-client.ts's comments on those two handlers) rather than constructing
+ * a real `FileStorageClient`. This file is statically imported by *.spec.ts,
+ * which Playwright runs under Node, not a browser — a value import of
+ * `@holochain-open-dev/file-storage` pulls in its `dropzone` dependency,
+ * which references the browser global `self` at module load time and
+ * crashes every spec with "self is not defined" before a single test runs.
+ * `harness-main.ts` (browser-bundled) is the only place that may import that
+ * package as a value.
+ */
+async function uploadStubFile(
+  client: StubAppClient,
+  name: string,
+  file_type: string,
+  bytes: Uint8Array,
+): Promise<EntryHash> {
+  const chunks_hashes = [await call(client, 'create_file_chunk', bytes)];
+  return (await call(client, 'create_file_metadata', {
+    name,
+    size: bytes.length,
+    file_type,
+    last_modified: Date.now(),
+    chunks_hashes,
+  })) as EntryHash;
+}
+
+/**
+ * The asset document (see `seedAssetDocument`) plus one attachment. Returns
+ * the document's `original` action hash, same as `seedAssetDocument`.
+ */
+async function seedAssetDocumentWithAttachment(
+  client: StubAppClient,
+  name: string,
+  file_type: string,
+  bytes: Uint8Array,
+): Promise<ActionHash> {
+  const original = await seedAssetDocument(client);
+  const file_hash = await uploadStubFile(client, name, file_type, bytes);
+  await call(client, 'attach_file', { original, file_hash });
+  return original;
+}
+
+export function seedAssetDocumentWithTextAttachment(client: StubAppClient): Promise<ActionHash> {
+  return seedAssetDocumentWithAttachment(
+    client,
+    ASSET_TEXT_ATTACHMENT_NAME,
+    'text/plain',
+    new TextEncoder().encode(ASSET_TEXT_ATTACHMENT_CONTENT),
+  );
+}
+
+export function seedAssetDocumentWithImageAttachment(client: StubAppClient): Promise<ActionHash> {
+  const bytes = Uint8Array.from(atob(ASSET_IMAGE_ATTACHMENT_BASE64), (c) => c.charCodeAt(0));
+  return seedAssetDocumentWithAttachment(client, ASSET_IMAGE_ATTACHMENT_NAME, 'image/png', bytes);
+}
+
+/** The asset document, amended once — two versions, for VersionHistory. */
+export async function seedAssetDocumentWithVersions(client: StubAppClient): Promise<ActionHash> {
+  const original = await seedAssetDocument(client);
+  await call(client, 'amend_document', {
+    original,
+    body: `${ASSET_DOCUMENT_BODY_TEXT} Amended after the treasurer's follow-up.`,
+    meta: { title: ASSET_DOCUMENT_TITLE, date: '2026-01-16' },
+  });
+  return original;
 }

@@ -6,7 +6,13 @@ import '../src/app.css';
 import { mount } from 'svelte';
 import App from '../src/App.svelte';
 import { createStubClient } from './stub-client';
-import { seedReferenceArchive, seedAssetDocument } from './seed';
+import {
+  seedReferenceArchive,
+  seedAssetDocument,
+  seedAssetDocumentWithTextAttachment,
+  seedAssetDocumentWithImageAttachment,
+  seedAssetDocumentWithVersions,
+} from './seed';
 
 const client = createStubClient();
 const params = new URLSearchParams(location.search);
@@ -26,6 +32,11 @@ if (params.get('seed') === 'archive') {
 // the seam described in asset-view.spec.ts. The two values differ only in
 // `context.view`, mirroring the two WALs the same document gets in real
 // Moss (see we.ts / DocumentView's "Add to pocket" controls).
+// `?asset=attachment-text` / `?asset=attachment-image` seed the same
+// document plus one attachment, for the asset view's reused
+// Attachments.svelte (read-only mode — see AssetView.svelte and
+// asset-view.spec.ts). `?asset=versions` seeds it amended once, for
+// VersionHistory.
 const asset = params.get('asset');
 if (asset === 'plain' || asset === 'rendered') {
   const hash = await seedAssetDocument(client);
@@ -33,6 +44,15 @@ if (asset === 'plain' || asset === 'rendered') {
     hash,
     context: asset === 'rendered' ? { view: 'rendered' } : {},
   };
+} else if (asset === 'attachment-text') {
+  const hash = await seedAssetDocumentWithTextAttachment(client);
+  (window as unknown as { __ARK_TEST_ASSET__?: unknown }).__ARK_TEST_ASSET__ = { hash, context: {} };
+} else if (asset === 'attachment-image') {
+  const hash = await seedAssetDocumentWithImageAttachment(client);
+  (window as unknown as { __ARK_TEST_ASSET__?: unknown }).__ARK_TEST_ASSET__ = { hash, context: {} };
+} else if (asset === 'versions') {
+  const hash = await seedAssetDocumentWithVersions(client);
+  (window as unknown as { __ARK_TEST_ASSET__?: unknown }).__ARK_TEST_ASSET__ = { hash, context: {} };
 } else if (asset === 'missing') {
   // A hash the stub has never seen — the same shape a trashed or
   // not-yet-synced document produces for a real WAL in Moss.
