@@ -128,14 +128,25 @@ export class ArkIndex {
   search(raw: string, filters: SearchFilters): SearchHit[] {
     const parsed = parseQuery(raw);
 
-    // No positive terms is a browse: filters alone, ordered by date descending.
-    // Exclusions still apply — `-draft` on its own means "everything except
-    // drafts", and ignoring it here would silently return the whole archive.
+    // A query with no positive terms, no phrases, and no exclusions is empty
+    // — clearing the search box, possibly with a filter (or "include
+    // trashed") still set. That must yield zero hits, not the whole archive:
+    // filter-only browsing was a deliberate capability and this is its
+    // deliberate removal (see docs/dev/fix-brief-template.md's Task B
+    // dispatch). An exclusion-only query (`-draft`, no positive term) is NOT
+    // empty in this sense — it has terms in `parsed.excluded` — and must keep
+    // working: everything passing the filters *and* the exclusion, ordered by
+    // date descending.
+    if (parsed.terms.length === 0 && parsed.phrases.length === 0 && parsed.excluded.length === 0) {
+      return [];
+    }
+
+    // Reaching here means parsed.excluded is non-empty (the pure-empty case
+    // above already returned) — an exclusion-only query like `-draft`.
     if (parsed.terms.length === 0 && parsed.phrases.length === 0) {
       return [...this.docs.entries()]
         .filter(([id, doc]) => this.passesFilters(id, doc, filters))
         .filter(([id, doc]) => {
-          if (parsed.excluded.length === 0) return true;
           const attachments = this.attachments.get(id) ?? [];
           const haystack = [doc.meta.title ?? '', doc.body, ...attachments.map((a) => a.text)].join(
             '\n',

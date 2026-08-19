@@ -68,25 +68,61 @@ describe('ArkIndex', () => {
     expect(hits[0].snippet.marks.length).toBeGreaterThan(0);
   });
 
-  it('filters by folder including descendants', () => {
+  // An empty query used to be a browse: everything passing the filters,
+  // ordered by date. That fell through when the box was simply cleared while
+  // a filter (or "include trashed") was still set, silently presenting the
+  // whole archive as search output — a reported bug. Browsing-by-filter-alone
+  // was a deliberate capability and this is the deliberate removal of it: an
+  // empty query now always yields zero hits, filters or not.
+  it('returns nothing for an empty query, even with a folder filter set', () => {
     const index = makeIndex();
     index.setFilings(filings);
-    const hits = index.search('', { ...noFilters, folderId: 'bl' });
+    expect(index.search('', { ...noFilters, folderId: 'bl' })).toEqual([]);
+  });
+
+  it('returns nothing for an empty query, even with an author filter set', () => {
+    const index = makeIndex();
+    const mine = encodeHashToBase64(hash(2));
+    expect(index.search('', { ...noFilters, author: mine })).toEqual([]);
+  });
+
+  it('returns nothing for an empty query, even with a date range set', () => {
+    expect(makeIndex().search('', { ...noFilters, from: '2021-01-01', to: '2021-12-31' })).toEqual(
+      [],
+    );
+  });
+
+  it('returns nothing for an empty query with no filters at all', () => {
+    expect(makeIndex().search('', noFilters)).toEqual([]);
+  });
+
+  it('returns nothing for an empty query even with includeTrashed set', () => {
+    expect(makeIndex().search('', { ...noFilters, includeTrashed: true })).toEqual([]);
+  });
+
+  // Coverage that the browse removal above deletes: folder/author/date-range
+  // filtering is still exercised, now via an actual search term rather than
+  // an empty one, since that is the only way any of these filters get
+  // applied any more (besides the exclusion-only path below).
+  it('filters a real search by folder, including descendants', () => {
+    const index = makeIndex();
+    index.setFilings(filings);
+    const hits = index.search('buildings', { ...noFilters, folderId: 'bl' });
     expect(hits.map((h) => h.doc.meta.title).sort()).toEqual([
       'Buildings and Land, March',
       'Buildings and Land, May',
     ]);
   });
 
-  it('filters by author', () => {
+  it('filters a real search by author', () => {
     const index = makeIndex();
     const mine = encodeHashToBase64(hash(2));
-    const hits = index.search('', { ...noFilters, author: mine });
+    const hits = index.search('roof', { ...noFilters, author: mine });
     expect(hits.map((h) => h.doc.meta.title)).toEqual(['Community Life, April']);
   });
 
-  it('filters by date range', () => {
-    const hits = makeIndex().search('', { ...noFilters, from: '2021-01-01', to: '2021-12-31' });
+  it('filters a real search by date range', () => {
+    const hits = makeIndex().search('roof', { ...noFilters, from: '2021-01-01', to: '2021-12-31' });
     expect(hits.map((h) => h.doc.meta.title)).toEqual(['Community Life, April']);
   });
 
