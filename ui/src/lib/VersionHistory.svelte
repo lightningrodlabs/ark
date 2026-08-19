@@ -2,6 +2,7 @@
   import { diffWords } from 'diff';
   import { encodeHashToBase64 } from '@holochain/client';
   import type { DocumentVersion } from '../types';
+  import AgentAvatar from './AgentAvatar.svelte';
 
   // `currentAction` is the resolved latest from DocumentSummary.latest. The
   // current version is identified by hash, never by position in the list —
@@ -27,7 +28,7 @@
       <li>
         <button onclick={() => (expanded = expanded === id ? null : id)}>
           v{i + 1} · {new Date(version.timestamp / 1000).toLocaleString()} ·
-          {encodeHashToBase64(version.author).slice(0, 8)}
+          <AgentAvatar agent={version.author} size={18} />
           {#if id === currentAction}<em>current</em>{/if}
         </button>
         {#if expanded === id}

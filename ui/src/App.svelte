@@ -4,7 +4,7 @@
   import { WeaveClient, initializeHotReload, isWeaveContext } from '@theweave/api';
   import { FileStorageClient } from '@holochain-open-dev/file-storage';
   import { ArkClient } from './ark-client';
-  import { clientContext, storeContext } from './contexts';
+  import { clientContext, storeContext, weaveContext } from './contexts';
   import { connectClient } from './connect';
   import { appletServices } from './we';
   import { TreeStore } from './stores/tree.svelte';
@@ -41,6 +41,17 @@
 
   setContext(clientContext, { get ark() { return ark; } });
   setContext(storeContext, { get store() { return store; } });
+  // profilesClient only exists inside Moss (weaveClient.renderInfo, narrowed
+  // to the applet-view case in onMount below); hc-spin dev and the e2e
+  // harness never set weaveClient, so this getter returns undefined there and
+  // AgentAvatar falls back to identicons — see Task A in the dispatch brief.
+  setContext(weaveContext, {
+    get profilesClient() {
+      return weaveClient?.renderInfo.type === 'applet-view'
+        ? weaveClient.renderInfo.profilesClient
+        : undefined;
+    },
+  });
 
   onMount(async () => {
     try {
@@ -136,13 +147,14 @@
       : docs.inFolder(selectedFolder, tree.live);
   });
 
-  // Distinct authors across the archive; the search module itself does not
-  // know about profiles, so the label is just the key's first eight
-  // characters (a <profile-detail> element can replace this later).
+  // Distinct authors across the archive. The search module itself does not
+  // know about profiles or identity — it only sees the raw agent key — so
+  // SearchBar renders each entry as an <AgentAvatar>, which resolves the key
+  // to a Moss profile avatar or an identicon (never as visible hash text).
   let authors = $derived(
     store
-      ? [...new Set([...store.byOriginal.values()].map((d) => encodeHashToBase64(d.author)))].map(
-          (k) => ({ key: k, label: k.slice(0, 8) }),
+      ? [...new Map([...store.byOriginal.values()].map((d) => [encodeHashToBase64(d.author), d.author])).entries()].map(
+          ([key, hash]) => ({ key, hash }),
         )
       : [],
   );
