@@ -65,8 +65,8 @@
     {ark}
     {files}
     {doc}
-    onIndexed={(name, text) => search.setAttachmentText(doc.original, name, text)}
-    onUnindexed={(name) => search.removeAttachmentText(doc.original, name)}
+    onIndexed={(original, name, text) => search.setAttachmentText(original, name, text)}
+    onUnindexed={(original, name) => search.removeAttachmentText(original, name)}
   />
 </article>
 
