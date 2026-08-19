@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import type { EntryHash } from '@holochain/client';
   import { encodeHashToBase64 } from '@holochain/client';
   import type { FileStorageClient } from '@holochain-open-dev/file-storage';
@@ -113,12 +113,20 @@
   }
 
   $effect(() => {
-    const mine = ++generation;
+    // `doc.original` is the ONLY thing this effect may depend on. Everything
+    // below runs untracked because `closePreview()` reads `previewUrl`, and a
+    // tracked read there makes the effect re-run whenever a preview opens —
+    // which revokes the object URL microseconds after `togglePreview` created
+    // it, leaving <img> pointing at a dead blob (ERR_FILE_NOT_FOUND). Text
+    // previews survived that because they hold no URL; images did not.
     const original = doc.original;
-    // A preview open for the previous document's attachment makes no sense
-    // once that document is no longer showing.
-    closePreview();
-    refresh(original, mine);
+    untrack(() => {
+      const mine = ++generation;
+      // A preview open for the previous document's attachment makes no sense
+      // once that document is no longer showing.
+      closePreview();
+      refresh(original, mine);
+    });
   });
 
   async function upload(event: Event) {

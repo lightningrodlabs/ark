@@ -85,3 +85,39 @@ test('downloading an attachment triggers a real browser download with the right 
   ]);
   expect(download.suggestedFilename()).toBe('roster.pdf');
 });
+
+test('previewing an image attachment actually renders the image', async ({ page }) => {
+  // Regression: the preview <img> appeared but its blob URL 404'd with
+  // ERR_FILE_NOT_FOUND. The $effect that clears a stale preview called
+  // closePreview(), which READS previewUrl — so the effect tracked it, re-ran
+  // the moment togglePreview assigned a new URL, and revoked that URL
+  // immediately. Text previews hold no URL and so were unaffected, which is
+  // why only images broke and no spec caught it.
+  //
+  // Asserting the element exists is NOT enough: a dead blob src still yields an
+  // <img>. naturalWidth is only non-zero once the bytes have actually decoded.
+  await page.goto('/harness/index.html');
+  await createDocument(page, { title: 'Site photos', body: 'Roof inspection.' });
+
+  // A 1x1 PNG — smallest thing that still proves the bytes round-tripped
+  // through file storage, the blob URL, and the decoder.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  await page.setInputFiles('input[type="file"]', {
+    name: 'roof.png',
+    mimeType: 'image/png',
+    buffer: png,
+  });
+
+  const row = page.locator('li', { hasText: 'roof.png' });
+  await expect(row).toBeVisible();
+  await row.getByRole('button', { name: /preview/i }).click();
+
+  const img = page.locator('img');
+  await expect(img).toBeVisible();
+  await expect
+    .poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 5000 })
+    .toBeGreaterThan(0);
+});
