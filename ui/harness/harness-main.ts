@@ -39,6 +39,14 @@ if (params.get('seed') === 'pending-structure') {
 (window as unknown as { __ARK_RESOLVE_TREE__?: () => void }).__ARK_RESOLVE_TREE__ = () =>
   client.resolveStructure();
 
+// Park/release a zome fn, so a spec can assert on what the UI looks like
+// while a call is still in flight — see stub-client's stallZomeCalls, and
+// pane-header.spec.ts, which uses it to catch a running import.
+(window as unknown as { __ARK_STALL__?: (fn: string) => void }).__ARK_STALL__ = (fn) =>
+  client.stallZomeCalls(fn);
+(window as unknown as { __ARK_RELEASE__?: () => void }).__ARK_RELEASE__ = () =>
+  client.releaseZomeCalls();
+
 // `?asset=plain` or `?asset=rendered` seeds one known document directly
 // against the stub, then sets `__ARK_TEST_ASSET__` so App.svelte's onMount
 // takes the Moss asset-rendering branch instead of the normal boot path —

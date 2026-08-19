@@ -50,6 +50,16 @@ export interface StubAppClient {
   simulateStructurePending(): void;
   /** Reverses `simulateStructurePending`, as a reconcile arriving would. */
   resolveStructure(): void;
+  /**
+   * Test-only seam for asserting on a call that is *in flight*. Every
+   * subsequent call to `fnName` parks until `releaseZomeCalls()` is called.
+   * A stub backed by two Maps answers faster than Playwright can look, so
+   * "the close button is disabled WHILE an import runs" is otherwise a race
+   * rather than a test.
+   */
+  stallZomeCalls(fnName: string): void;
+  /** Lets every parked call through and stops parking new ones. */
+  releaseZomeCalls(): void;
 }
 
 let counter = 0;
@@ -119,6 +129,10 @@ export function createStubClient(): StubAppClient {
    * yet the tree entry that would let it resolve which folder that is.
    */
   let structurePending = false;
+
+  /** See stallZomeCalls: the fn name currently parked, and who is waiting. */
+  let stalledFn: string | null = null;
+  let parked: (() => void)[] = [];
 
   const key = (hash: ActionHash | EntryHash) => encodeHashToBase64(hash);
 
@@ -336,6 +350,9 @@ export function createStubClient(): StubAppClient {
     },
     async callZome(request) {
       calls.push(request.fn_name);
+      if (stalledFn !== null && request.fn_name === stalledFn) {
+        await new Promise<void>((resolve) => parked.push(resolve));
+      }
       const handler = handlers[request.fn_name];
       if (!handler) throw new Error(`stub-client: unhandled zome fn "${request.fn_name}"`);
       return handler(request.payload);
@@ -345,6 +362,15 @@ export function createStubClient(): StubAppClient {
     },
     resolveStructure() {
       structurePending = false;
+    },
+    stallZomeCalls(fnName) {
+      stalledFn = fnName;
+    },
+    releaseZomeCalls() {
+      stalledFn = null;
+      const waiting = parked;
+      parked = [];
+      for (const resolve of waiting) resolve();
     },
     on(_event, _cb) {
       // No peer ever pushes a remote signal in this single-agent stub — every
