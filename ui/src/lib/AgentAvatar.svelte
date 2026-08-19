@@ -5,6 +5,7 @@
   import renderIdenticon from '@holo-host/identicon';
   import { weaveContext } from '../contexts';
   import { avatarSource, type ProfileLike } from '../avatar/source';
+  import { cachedAgentProfile } from '../avatar/profile-cache';
 
   // Renders a person, never a hash: their Moss profile avatar when one is
   // set, otherwise an identicon derived from their agent key. Outside Moss
@@ -27,14 +28,9 @@
       return;
     }
     let cancelled = false;
-    client
-      .getAgentProfile(forAgent)
-      .then((record) => {
-        if (!cancelled) profile = record?.entry;
-      })
-      .catch(() => {
-        if (!cancelled) profile = undefined;
-      });
+    cachedAgentProfile(client, forAgent).then((entry) => {
+      if (!cancelled) profile = entry;
+    });
     return () => {
       cancelled = true;
     };
