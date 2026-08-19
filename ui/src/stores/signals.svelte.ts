@@ -13,18 +13,11 @@ export function peersExcludingSelf(all: AgentPubKey[], me: AgentPubKey): AgentPu
   return all.filter((peer) => encodeHashToBase64(peer) !== mine);
 }
 
-export function needsReconcile(
-  local: Set<string>,
-  remote: Set<string>,
-): { added: string[]; removed: string[] } {
-  return {
-    added: [...remote].filter((id) => !local.has(id)),
-    removed: [...local].filter((id) => !remote.has(id)),
-  };
-}
-
 /** How often the backstop reconcile runs when the tab stays focused. */
 export const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
+
+/** Minimum gap between reconciles, however they were triggered. */
+export const RECONCILE_MIN_GAP_MS = 60 * 1000;
 
 /**
  * Remote signals are best-effort: a peer that was offline, or a signal that was
@@ -52,7 +45,7 @@ export class SignalStore {
       }
     });
     window.addEventListener('focus', this.focusHandler);
-    this.timer = setInterval(() => void this.onReconcile(), RECONCILE_INTERVAL_MS);
+    this.timer = setInterval(() => void this.maybeReconcile(), RECONCILE_INTERVAL_MS);
   }
 
   stop(): void {
@@ -61,12 +54,37 @@ export class SignalStore {
     if (this.timer) clearInterval(this.timer);
   }
 
-  private focusHandler = () => void this.onReconcile();
+  private focusHandler = () => void this.maybeReconcile();
 
-  /** No-op outside Moss, where there is no group roster to notify. */
+  /**
+   * Reconciling reloads the whole corpus and rebuilds the search index, which on
+   * a 1406-document archive is seconds of work. Focus fires every time someone
+   * switches tabs, and the timer can land moments after a focus already
+   * reconciled, so both routes share one floor.
+   */
+  private lastReconcileAt = 0;
+  private async maybeReconcile(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastReconcileAt < RECONCILE_MIN_GAP_MS) return;
+    this.lastReconcileAt = now;
+    await this.onReconcile();
+  }
+
+  /**
+   * No-op outside Moss, where there is no group roster to notify.
+   *
+   * Never throws. A signal is an optimisation — the reconcile below is what
+   * guarantees peers converge — so a failed notify must not surface as a failed
+   * write. Letting it propagate would tell someone their minutes did not save
+   * when they did, and a retry would file the document twice.
+   */
   async broadcast(signal: ArkSignal): Promise<void> {
     if (this.peers.length === 0) return;
-    await this.ark.notifyPeers(this.peers, signal);
+    try {
+      await this.ark.notifyPeers(this.peers, signal);
+    } catch (e) {
+      console.warn('ark: could not notify peers; they will catch up on reconcile', e);
+    }
   }
 
   /**

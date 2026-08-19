@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { needsReconcile, peersExcludingSelf } from './signals.svelte';
+import { peersExcludingSelf } from './signals.svelte';
 
 const key = (n: number) => new Uint8Array([n, n, n]) as any;
 
@@ -15,25 +15,5 @@ describe('peersExcludingSelf', () => {
 
   it('handles an empty roster', () => {
     expect(peersExcludingSelf([], key(1))).toEqual([]);
-  });
-});
-
-describe('needsReconcile', () => {
-  it('reports documents that appeared remotely', () => {
-    expect(needsReconcile(new Set(['a']), new Set(['a', 'b']))).toEqual({
-      added: ['b'],
-      removed: [],
-    });
-  });
-
-  it('reports documents that vanished locally', () => {
-    expect(needsReconcile(new Set(['a', 'b']), new Set(['a']))).toEqual({
-      added: [],
-      removed: ['b'],
-    });
-  });
-
-  it('reports nothing when the sets agree', () => {
-    expect(needsReconcile(new Set(['a']), new Set(['a']))).toEqual({ added: [], removed: [] });
   });
 });
