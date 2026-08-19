@@ -15,6 +15,14 @@ describe('termRanges', () => {
     expect(at(text, termRanges(text, ['treasur']))).toEqual(['treasurer']);
   });
 
+  // termRanges and matchesParsed must agree on where a word ends, or a row
+  // highlights one span and the document you land in highlights another.
+  // Both take the rule from ./words.
+  it('extends a prefix match through an accented letter', () => {
+    const text = 'the café reopened';
+    expect(at(text, termRanges(text, ['caf']))).toEqual(['café']);
+  });
+
   it('is case insensitive but reports the text as written', () => {
     const text = 'The Treasurer';
     expect(at(text, termRanges(text, ['TREASUR']))).toEqual(['Treasurer']);

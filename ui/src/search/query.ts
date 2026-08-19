@@ -1,3 +1,5 @@
+import { includesWord } from './words';
+
 export interface ParsedQuery {
   terms: string[];
   phrases: string[];
@@ -63,14 +65,24 @@ export function parseQuery(raw: string): ParsedQuery {
   return { terms, phrases, excluded, highlight, combineWith };
 }
 
-/** Phrase adjacency and negation, which the index cannot express. */
+/**
+ * Phrase adjacency and negation, which the index cannot express.
+ *
+ * Both are matched as whole words (see `./words`), and that is the entire
+ * difference between them and a bare term. A bare term goes to MiniSearch and
+ * is prefix- and fuzzy-matched — `financ` finds financial, finance and
+ * financing, and `eric` finds Robinhawk. That is the useful default and it is
+ * untouched here, because bare terms are in `parsed.terms` and this function
+ * never looks at them. Quoting a term or excluding it is how you ask for the
+ * word itself, and before this was anchored there was no way to ask at all.
+ */
 export function matchesParsed(text: string, parsed: ParsedQuery): boolean {
   const haystack = text.toLowerCase();
   for (const phrase of parsed.phrases) {
-    if (!haystack.includes(phrase)) return false;
+    if (!includesWord(haystack, phrase)) return false;
   }
   for (const term of parsed.excluded) {
-    if (haystack.includes(term)) return false;
+    if (includesWord(haystack, term)) return false;
   }
   return true;
 }

@@ -1,3 +1,5 @@
+import { endOfWord } from './words';
+
 /**
  * Where a set of search terms occurs in a piece of text.
  *
@@ -29,10 +31,12 @@ export function termRanges(text: string, terms: string[]): [number, number][] {
     if (!term) continue;
     let at = lower.indexOf(term);
     while (at >= 0) {
-      // Extend to the end of the word so a prefix match highlights the whole word.
-      let wordEnd = at + term.length;
-      while (wordEnd < text.length && /\w/.test(text[wordEnd])) wordEnd++;
-      ranges.push([at, wordEnd]);
+      // Extend to the end of the word so a prefix match highlights the whole
+      // word. The rule lives in ./words, shared with the whole-word matching
+      // in `matchesParsed` — two definitions of "word" would drift, and the
+      // symptom would be a result row marking a different span from the
+      // document it opens.
+      ranges.push([at, endOfWord(text, at + term.length)]);
       at = lower.indexOf(term, at + term.length);
     }
   }

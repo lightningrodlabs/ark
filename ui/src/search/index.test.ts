@@ -230,3 +230,36 @@ describe('ArkIndex', () => {
     expect(index.search('pump', { ...noFilters, includeTrashed: true })).toHaveLength(1);
   });
 });
+
+// Two people, one a prefix of the other. Bare `eric` finding both is the
+// useful default and stays; a quoted term and an exclusion are the narrow
+// instrument that lets you say the word Eric on its own.
+describe('ArkIndex whole-word queries', () => {
+  const people = [
+    doc(10, 'Land, June', 'Eric reported on the well.', '2020-06-01'),
+    doc(11, 'Land, July', 'Robinhawk reported on the well.', '2020-07-01'),
+  ];
+  const titles = (hits: { doc: DocumentSummary }[]) => hits.map((h) => h.doc.meta.title).sort();
+
+  function peopleIndex() {
+    const index = new ArkIndex();
+    index.rebuild(people);
+    return index;
+  }
+
+  it('prefix-matches a bare term, so `eric` still finds Robinhawk', () => {
+    expect(titles(peopleIndex().search('eric', noFilters))).toEqual(['Land, June', 'Land, July'].sort());
+  });
+
+  it('finds only the whole word for a quoted term', () => {
+    expect(titles(peopleIndex().search('"eric"', noFilters))).toEqual(['Land, June']);
+  });
+
+  it('keeps the longer word when the shorter one is excluded', () => {
+    expect(titles(peopleIndex().search('well -eric', noFilters))).toEqual(['Land, July']);
+  });
+
+  it('keeps the longer word for an exclusion-only query', () => {
+    expect(titles(peopleIndex().search('-eric', noFilters))).toEqual(['Land, July']);
+  });
+});
