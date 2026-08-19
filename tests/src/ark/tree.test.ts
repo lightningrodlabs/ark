@@ -53,7 +53,14 @@ describe('folder tree', () => {
     });
   });
 
-  it('exposes both heads when two agents edit concurrently', async () => {
+  // NOTE: there is deliberately no integration test asserting `heads.length >= 2`.
+  // Forking the update chain requires two writes to race gossip, which tryorama
+  // cannot stage — and authoring before `shareAllAgents()` can leave a write
+  // permanently unsynced rather than merely late. The "return every tip, never
+  // one winner" property is guarded by `all_tips` itself and by the UI's
+  // mergeHeads unit tests in Task 10, which feed it multi-head input directly.
+
+  it('loses no folder when two agents edit the same tree concurrently', async () => {
     await runScenario(async (scenario) => {
       const [alice, bob] = await scenario.addPlayersWithApps([appSource, appSource]);
       await scenario.shareAllAgents();
@@ -71,10 +78,12 @@ describe('folder tree', () => {
       ]);
       await dhtSync([alice, bob], arkCell(alice).cell_id[0]);
 
+      // Asserts the property, not the mechanism. Whether these two writes fork
+      // the chain or gossip linearises them is outside the test's control, and
+      // both callers are sending a full list that predates the other's write.
+      // Neither folder may be lost either way — which holds because
+      // update_folder_tree carries forward ids the caller did not send.
       const heads = await call<TreeHead[]>(alice, 'get_folder_tree', null);
-      // Both forks must be returned. Collapsing to a single winner here would
-      // silently drop one agent's folder — get_folder_tree returns every tip.
-      expect(heads.length).toBeGreaterThanOrEqual(2);
       const ids = new Set(heads.flatMap((h) => h.folders.map((f) => f.id)));
       expect(ids.has('a1')).toBe(true);
       expect(ids.has('b1')).toBe(true);

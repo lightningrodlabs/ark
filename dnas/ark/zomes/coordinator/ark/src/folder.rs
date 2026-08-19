@@ -1,8 +1,8 @@
 use ark_integrity::*;
 use hdk::prelude::*;
+use std::collections::BTreeSet;
 
-use crate::resolve::all_tips;
-use crate::resolve::decode_entry;
+use crate::resolve::{all_tips, decode_entry};
 use crate::types::*;
 
 /// Create actions of every tree root ever committed. Normally one; two agents
@@ -44,16 +44,45 @@ pub fn get_folder_tree(_: ()) -> ExternResult<Vec<TreeHead>> {
 /// would leave the loser's tip live forever, growing the head count with every
 /// concurrent edit.
 ///
-/// The caller (the UI) has already merged; this function does not merge.
+/// The caller (the UI) has already merged every head it could see; the only
+/// merging this function itself does is carrying forward ids the caller didn't
+/// send, so a write built from a stale read can't erase another agent's folder.
+/// Reconciling forked heads is still entirely the UI's job.
 #[hdk_extern]
 pub fn update_folder_tree(input: UpdateFolderTreeInput) -> ExternResult<ActionHash> {
-    let tree = FolderTree { folders: input.folders };
-    let mut tips: Vec<ActionHash> = Vec::new();
+    let mut tip_records = Vec::new();
     for root in tree_roots()? {
         for record in all_tips(root)? {
-            tips.push(record.action_address().clone());
+            tip_records.push(record);
         }
     }
+
+    // Carry forward any folder id the caller did not send. The caller (the UI)
+    // has already merged every head it could see, but another agent may have
+    // added a folder between that read and this write, and a full-list write
+    // would erase it — the spec promises a concurrent add never loses a folder,
+    // and without this it does. Ids the caller DID send always win, so renames,
+    // re-parenting and `deleted` tombstones all still take effect.
+    //
+    // This is the ONLY merging the zome does. Reconciling forked heads is still
+    // the UI's job, because only it can apply the newest-action-wins rule.
+    let mut folders = input.folders;
+    let mut known: BTreeSet<String> = folders.iter().map(|f| f.id.clone()).collect();
+    for record in &tip_records {
+        if let Some(tree) = decode_entry::<FolderTree>(record, "FolderTree")? {
+            for folder in tree.folders {
+                if known.insert(folder.id.clone()) {
+                    folders.push(folder);
+                }
+            }
+        }
+    }
+
+    let tree = FolderTree { folders };
+    let mut tips: Vec<ActionHash> = tip_records
+        .iter()
+        .map(|r| r.action_address().clone())
+        .collect();
 
     if tips.is_empty() {
         let action_hash = create_entry(EntryTypes::FolderTree(tree))?;
