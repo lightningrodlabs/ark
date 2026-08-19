@@ -2,9 +2,10 @@
   import type { ActionHash } from '@holochain/client';
   import type { ArkClient } from '../ark-client';
   import type { SignalStore } from '../stores/signals.svelte';
-  import type { DocumentSummary, Meta } from '../types';
+  import type { DocumentSummary, Folder, Meta } from '../types';
   import { htmlToMarkdown } from '../paste/gdocs';
   import { renderMarkdown } from '../render';
+  import { canSaveDocument, folderOptions } from './createFolderPicker';
 
   let {
     ark,
@@ -12,6 +13,7 @@
     mode,
     doc,
     folderId,
+    folders,
     onDone,
     onCancel,
   }: {
@@ -20,6 +22,7 @@
     mode: 'create' | 'amend';
     doc?: DocumentSummary;
     folderId: string | null;
+    folders: Folder[];
     onDone: (original: ActionHash) => void;
     onCancel: () => void;
   } = $props();
@@ -34,6 +37,24 @@
   let saving = $state(false);
   let error = $state<string | undefined>(undefined);
   let preview = $derived(renderMarkdown(body));
+
+  // Create-mode-only folder picker. Amend never touches filing links (see
+  // fix brief), so it is out of scope here and the picker is not shown for
+  // it. Defaults to the folder selected in the sidebar when the archive has
+  // folders at all; stays empty (forcing a choice) when "All documents" was
+  // selected — see canSaveDocument below for why the empty archive is exempt.
+  let options = $derived(folderOptions(folders));
+  let hasFolders = $derived(options.length > 0);
+  // `''` (not null) so it binds cleanly to the <select>'s placeholder
+  // option — a plain-string DOM control has no way to represent null.
+  // Captured once at open, same as `initial` above: the picker must not
+  // silently jump to a new default if the sidebar selection changes while
+  // the editor happens to still be mounted.
+  const initialFolder = (() => folderId ?? '')();
+  let selectedFolder = $state<string>(initialFolder);
+  let canSave = $derived(
+    canSaveDocument({ mode, title, folderId: selectedFolder || null, hasFolders }),
+  );
 
   /**
    * Convert an HTML paste to markdown before it lands in the textarea, so the
@@ -56,7 +77,7 @@
     try {
       const meta: Meta = { ...(doc?.meta ?? {}), title, date };
       if (mode === 'create') {
-        const original = await ark.createDocument({ body, meta, folder_id: folderId });
+        const original = await ark.createDocument({ body, meta, folder_id: selectedFolder || null });
         await signals.broadcast({ type: 'DocumentCreated', original });
         onDone(original);
       } else {
@@ -78,7 +99,22 @@
   <div class="fields">
     <input placeholder="Title" bind:value={title} />
     <input type="date" bind:value={date} />
+    {#if mode === 'create' && hasFolders}
+      <select class="folder-picker" bind:value={selectedFolder}>
+        <option value="">Choose a folder…</option>
+        {#each options as option (option.id)}
+          <option value={option.id}>{option.label}</option>
+        {/each}
+      </select>
+    {/if}
   </div>
+  {#if mode === 'create'}
+    {#if hasFolders && !selectedFolder}
+      <p class="folder-hint">Choose a folder to file this document in.</p>
+    {:else if !hasFolders}
+      <p class="folder-hint">No folders yet — this will be unfiled.</p>
+    {/if}
+  {/if}
   <div class="panes">
     <textarea bind:value={body} onpaste={onPaste} placeholder="Paste from Google Docs, or write markdown"></textarea>
     <div class="preview">{@html preview}</div>
@@ -87,7 +123,7 @@
     <p class="error" role="alert">{error}</p>
   {/if}
   <div class="actions">
-    <button onclick={save} disabled={saving || !title}>
+    <button onclick={save} disabled={saving || !canSave}>
       {mode === 'create' ? 'Add document' : 'Save amendment'}
     </button>
     <button onclick={onCancel}>Cancel</button>
@@ -102,4 +138,5 @@
   textarea { width: 100%; height: 100%; font-family: ui-monospace, monospace; }
   .preview { overflow: auto; border: 1px solid rgba(128, 128, 128, 0.3); padding: 0.5rem; }
   .error { color: #b00020; margin: 0; }
+  .folder-hint { margin: 0; opacity: 0.7; font-size: 0.9em; }
 </style>

@@ -349,6 +349,7 @@
           {signals}
           mode="create"
           folderId={selectedFolder}
+          folders={tree.live}
           onDone={onEditorDone}
           onCancel={() => (editing = null)}
         />
@@ -359,6 +360,7 @@
           mode="amend"
           doc={selectedDoc}
           folderId={selectedFolder}
+          folders={tree.live}
           onDone={onEditorDone}
           onCancel={() => (editing = null)}
         />
