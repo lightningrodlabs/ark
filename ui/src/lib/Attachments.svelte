@@ -14,12 +14,21 @@
     doc,
     onIndexed,
     onUnindexed,
+    readOnly = false,
   }: {
     ark: ArkClient;
     files: FileStorageClient;
     doc: DocumentSummary;
-    onIndexed: (original: DocumentSummary['original'], name: string, text: string) => void;
-    onUnindexed: (original: DocumentSummary['original'], name: string) => void;
+    // Optional: the asset view has no search store to feed, and must not
+    // build one just to satisfy this prop (see `readOnly` below). Every
+    // other caller passes both.
+    onIndexed?: (original: DocumentSummary['original'], name: string, text: string) => void;
+    onUnindexed?: (original: DocumentSummary['original'], name: string) => void;
+    // The asset view is a read-only window onto a document: no upload input,
+    // no Remove button, and the section itself disappears when there is
+    // nothing to show (the main document view always shows it, empty or
+    // not, because it is where attachments get added).
+    readOnly?: boolean;
   } = $props();
 
   let attached = $state<{ hash: EntryHash; name: string; type: string; size: number }[]>([]);
@@ -103,10 +112,14 @@
       const meta = await files.getFileMetadata(hash);
       if (mine !== generation) return;
       listed.push({ hash, name: meta.name, type: meta.file_type, size: meta.size });
-      if (isIndexableText(meta.name, meta.file_type)) {
+      // Read-only callers (the asset view) have nowhere to put indexed text
+      // and only ever show one document — downloading every attachment's
+      // bytes here just to hand them to a no-op callback would be pure
+      // waste, so skip the fetch entirely rather than merely no-op the call.
+      if (!readOnly && isIndexableText(meta.name, meta.file_type)) {
         const blob = await files.downloadFile(hash);
         if (mine !== generation) return;
-        onIndexed(original, meta.name, decodeAttachment(new Uint8Array(await blob.arrayBuffer())));
+        onIndexed?.(original, meta.name, decodeAttachment(new Uint8Array(await blob.arrayBuffer())));
       }
     }
     if (mine === generation) attached = listed;
@@ -167,7 +180,7 @@
       // Pinned `original`, not `doc.original`: onUnindexed must forget the
       // text under the document this attachment was actually removed from,
       // even if the user has since switched to a different one.
-      if (detached) onUnindexed(original, detached.name);
+      if (detached) onUnindexed?.(original, detached.name);
       await refresh(original, mine);
     } finally {
       busy = false;
@@ -175,41 +188,47 @@
   }
 </script>
 
-<section>
-  <h3>Attachments</h3>
-  <ul>
-    {#each attached as file (encodeHashToBase64(file.hash))}
-      {@const key = encodeHashToBase64(file.hash)}
-      {@const mode = previewMode(file.name, file.type)}
-      <li>
-        <div class="row">
-          <span class="name">{file.name}</span>
-          <span class="size">{Math.ceil(file.size / 1024)} KB</span>
-          {#if !isIndexableText(file.name, file.type)}<span class="note">not searched</span>{/if}
-          {#if mode !== 'none'}
-            <button onclick={() => togglePreview(file)}>
-              {previewKey === key ? 'Hide preview' : 'Preview'}
-            </button>
-          {:else}
-            <span class="note">cannot be previewed</span>
-          {/if}
-          <button onclick={() => download(file)}>Download</button>
-          <button onclick={() => detach(file.hash)} disabled={busy}>Remove</button>
-        </div>
-        {#if previewKey === key}
-          <div class="preview">
-            {#if previewKind === 'text'}
-              <pre>{previewText}</pre>
-            {:else if previewKind === 'image'}
-              <img src={previewUrl} alt={file.name} />
+{#if !readOnly || attached.length > 0}
+  <section>
+    <h3>Attachments</h3>
+    <ul>
+      {#each attached as file (encodeHashToBase64(file.hash))}
+        {@const key = encodeHashToBase64(file.hash)}
+        {@const mode = previewMode(file.name, file.type)}
+        <li>
+          <div class="row">
+            <span class="name">{file.name}</span>
+            <span class="size">{Math.ceil(file.size / 1024)} KB</span>
+            {#if !readOnly && !isIndexableText(file.name, file.type)}<span class="note">not searched</span>{/if}
+            {#if mode !== 'none'}
+              <button onclick={() => togglePreview(file)}>
+                {previewKey === key ? 'Hide preview' : 'Preview'}
+              </button>
+            {:else}
+              <span class="note">cannot be previewed</span>
+            {/if}
+            <button onclick={() => download(file)}>Download</button>
+            {#if !readOnly}
+              <button onclick={() => detach(file.hash)} disabled={busy}>Remove</button>
             {/if}
           </div>
-        {/if}
-      </li>
-    {/each}
-  </ul>
-  <input type="file" onchange={upload} disabled={busy} />
-</section>
+          {#if previewKey === key}
+            <div class="preview">
+              {#if previewKind === 'text'}
+                <pre>{previewText}</pre>
+              {:else if previewKind === 'image'}
+                <img src={previewUrl} alt={file.name} />
+              {/if}
+            </div>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+    {#if !readOnly}
+      <input type="file" onchange={upload} disabled={busy} />
+    {/if}
+  </section>
+{/if}
 
 <style>
   ul { list-style: none; padding: 0; }

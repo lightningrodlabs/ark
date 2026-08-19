@@ -120,6 +120,10 @@
           : undefined;
       if (assetWal) {
         ark = new ArkClient(client);
+        // Attachments (preview/download) need this too — see AssetView,
+        // which reuses Attachments.svelte in read-only mode rather than a
+        // second implementation.
+        files = new FileStorageClient(client, 'ark');
         assetDoc = (await ark.getDocument(assetWal.hrl[1])) ?? null;
         isAssetView = true;
         return;
@@ -331,8 +335,8 @@
   <!-- No <h1>ark</h1>: Moss's own tool bar already names the applet directly
        above this iframe, so a second title only cost vertical space in a pane
        that is mostly a list. -->
-  {#if isAssetView}
-    <AssetView doc={assetDoc} />
+  {#if isAssetView && ark && files}
+    <AssetView doc={assetDoc} {ark} {files} />
   {:else if error}
     <p class="error">{error}</p>
   {:else if !tree || !ark}
