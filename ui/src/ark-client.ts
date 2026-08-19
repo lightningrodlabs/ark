@@ -1,4 +1,5 @@
 import type { ActionHash, AgentPubKey, AppClient, EntryHash } from '@holochain/client';
+import { toPlain } from './plain';
 import type {
   ArkSignal,
   DocumentSummary,
@@ -33,7 +34,12 @@ export class ArkClient {
       role_name: this.roleName,
       zome_name: this.zomeName,
       fn_name,
-      payload,
+      // Every payload is stripped of reactive proxies here rather than at each
+      // call site. Inside Moss the call crosses an iframe bridge that
+      // structured-clones it, and a `$state`-backed array or object is a Proxy,
+      // which cannot be cloned. Doing it once means a future extern cannot
+      // reintroduce the bug by passing store state straight through.
+      payload: toPlain(payload),
     }) as Promise<T>;
   }
 
