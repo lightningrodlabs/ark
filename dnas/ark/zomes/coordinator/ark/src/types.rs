@@ -24,3 +24,19 @@ pub struct DocumentSummary {
     pub body: String,
     pub meta: BTreeMap<String, String>,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AmendDocumentInput {
+    pub original: ActionHash,
+    pub body: String,
+    pub meta: BTreeMap<String, String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DocumentVersion {
+    pub action: ActionHash,
+    pub author: AgentPubKey,
+    pub timestamp: Timestamp,
+    pub body: String,
+    pub meta: BTreeMap<String, String>,
+}
