@@ -87,8 +87,10 @@
 </script>
 
 <article>
+  <!-- No <h2> here: the pane header above this view carries the document's
+       title (see PaneHeader.svelte / App.svelte). AssetView keeps its own,
+       because Moss renders it with no pane around it. -->
   <header>
-    <h2>{doc.meta.title ?? '(untitled)'}</h2>
     <div class="meta">
       {#if doc.meta.date}<span>{doc.meta.date}</span>{/if}
       <!-- Unknown keys written by a newer UI still display, rather than vanish. -->

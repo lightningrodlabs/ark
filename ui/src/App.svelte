@@ -35,6 +35,7 @@
   import ImportPanel from './lib/ImportPanel.svelte';
   import AboutDialog from './lib/AboutDialog.svelte';
   import AssetView from './lib/AssetView.svelte';
+  import PaneHeader from './lib/PaneHeader.svelte';
 
   let ark: ArkClient | undefined = $state();
   let files: FileStorageClient | undefined = $state();
@@ -55,6 +56,13 @@
   let docHighlight = $state<string[]>([]);
   let editing: 'create' | 'amend' | null = $state(null);
   let importing = $state(false);
+  // Reported up by DocumentEditor and ImportPanel, because only they know.
+  // `editorDirty` gates the confirm before a close discards typed text;
+  // `importRunning` disables the close button while documents are still
+  // being written to the DHT, where losing the panel is worse than having no
+  // close button at all.
+  let editorDirty = $state(false);
+  let importRunning = $state(false);
   let aboutOpen = $state(false);
   // Moss asset-rendering path (see onMount): a single document, read-only,
   // with none of the tree/store/search/signals apparatus ever built. `null`
@@ -270,6 +278,7 @@
 
   function newDoc() {
     editing = 'create';
+    editorDirty = false;
     importing = false;
   }
 
@@ -281,11 +290,16 @@
   function openImport() {
     importing = true;
     editing = null;
+    editorDirty = false;
     selectedDoc = null;
   }
 
+  // The toolbar's "Close import" is a second door onto the same close as the
+  // pane header's ×, so it goes through the same guard: closing an import
+  // that is mid-run would take the panel away while documents are still
+  // being written, whichever control was clicked.
   function toggleImport() {
-    if (importing) importing = false;
+    if (importing) closePane();
     else openImport();
   }
 
@@ -298,6 +312,52 @@
 
   function amendDoc() {
     editing = 'amend';
+    editorDirty = false;
+  }
+
+  const DISCARD =
+    'Discard this edit? What you have typed has not been saved and will be lost.';
+
+  /**
+   * Cancel an edit, keeping whatever was open underneath (the document being
+   * amended, or nothing for a create). Same work-losing move as closing the
+   * pane, so it asks the same question.
+   */
+  function cancelEdit() {
+    if (editorDirty && !confirm(DISCARD)) return;
+    editing = null;
+    editorDirty = false;
+  }
+
+  /**
+   * The pane's close button, and Escape over an open document. Clears every
+   * flag the pane branches on rather than just the one that happens to be
+   * winning — otherwise closing an import would fall through to whatever
+   * document was open before it, and the pane would never reach the hint.
+   */
+  function closePane() {
+    // Belt to the disabled button's braces: an import writing to the DHT must
+    // not have its panel pulled out from under it by any route.
+    if (importing && importRunning) return;
+    if (editing && editorDirty && !confirm(DISCARD)) return;
+    importing = false;
+    editing = null;
+    editorDirty = false;
+    selectedDoc = null;
+    docHighlight = [];
+  }
+
+  function onWindowKeydown(event: KeyboardEvent) {
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
+    // Escape closes an open DOCUMENT and nothing else. During an edit or an
+    // import it would be a work-losing keystroke on a key people press by
+    // reflex, and the search overlay, the folder rename input and the About
+    // dialog each claim Escape for themselves before it ever gets here.
+    if (paneOccupant !== 'document' || aboutOpen) return;
+    const target = event.target as HTMLElement | null;
+    if (target && (target.isContentEditable || /^(input|textarea|select)$/i.test(target.tagName)))
+      return;
+    closePane();
   }
 
   async function trashDoc() {
@@ -366,6 +426,39 @@
   let deletedBins = $derived(store && tree ? store.inDeletedFolders(tree.folders) : []);
   let trashList = $derived(store && tree ? trashEntries(store, tree.folders) : []);
 
+  // What the right-hand pane is showing, named once. The precedence here is
+  // the same as the {#if} chain in the pane below, and has to stay that way:
+  // this is what the header titles itself from, so a disagreement would put
+  // one occupant's name over another's content. The chain's extra `ark &&
+  // store && files` guards are not repeated — inside this branch of the
+  // template all three are set — but the flag order is identical.
+  type PaneOccupant = 'import' | 'create' | 'amend' | 'document';
+  let paneOccupant: PaneOccupant | null = $derived(
+    importing
+      ? 'import'
+      : editing === 'create'
+        ? 'create'
+        : editing === 'amend' && selectedDoc
+          ? 'amend'
+          : selectedDoc
+            ? 'document'
+            : null,
+  );
+
+  const titleOf = (doc: DocumentSummary | null) => doc?.meta.title ?? '(untitled)';
+
+  let paneTitle = $derived(
+    paneOccupant === 'import'
+      ? 'Import markdown'
+      : paneOccupant === 'create'
+        ? 'New document'
+        : paneOccupant === 'amend'
+          ? `Amend ${titleOf(selectedDoc)}`
+          : paneOccupant === 'document'
+            ? titleOf(selectedDoc)
+            : '',
+  );
+
   async function onEditorDone(original: ActionHash) {
     if (!store) return;
     await store.refreshDocument(original);
@@ -376,8 +469,13 @@
     selectedDoc = doc;
     docHighlight = [];
     editing = null;
+    editorDirty = false;
   }
 </script>
+
+<!-- Escape is handled here rather than on the pane, which is a plain <div>
+     and never focused. onWindowKeydown does the narrowing. -->
+<svelte:window onkeydown={onWindowKeydown} />
 
 <main>
   <!-- No <h1>ark</h1>: Moss's own tool bar already names the applet directly
@@ -440,7 +538,14 @@
         ></sl-icon-button>
         <button class="new-doc" onclick={newDoc}>New document</button>
         {#if importing}
-          <button class="import" onclick={toggleImport}>Close import</button>
+          <button
+            class="import"
+            onclick={toggleImport}
+            disabled={importRunning}
+            title={importRunning
+              ? 'This import is still writing documents — it will finish on its own.'
+              : 'Close import'}>Close import</button
+          >
         {/if}
       </div>
       {#if search}
@@ -515,8 +620,27 @@
       </div>
 
       <div slot="end" class="pane pane-end">
+        <!-- One header for every occupant, so what the pane is showing is
+             always named and always closable. The empty hint gets none — a
+             header over "select a document" would have nothing to close. -->
+        {#if paneOccupant}
+          <PaneHeader
+            title={paneTitle}
+            onClose={closePane}
+            closeDisabled={paneOccupant === 'import' && importRunning}
+            closeReason="This import is still writing documents — it will finish on its own."
+          />
+        {/if}
         {#if importing && ark && store && files}
-          <ImportPanel {ark} {tree} {store} fileStorage={files} {search} onDone={onImportDone} />
+          <ImportPanel
+            {ark}
+            {tree}
+            {store}
+            fileStorage={files}
+            {search}
+            onDone={onImportDone}
+            onRunningChange={(running) => (importRunning = running)}
+          />
         {:else if editing === 'create'}
           <DocumentEditor
             {ark}
@@ -525,7 +649,8 @@
             folderId={selectedFolder}
             folders={tree.live}
             onDone={onEditorDone}
-            onCancel={() => (editing = null)}
+            onCancel={cancelEdit}
+            onDirtyChange={(dirty) => (editorDirty = dirty)}
           />
         {:else if editing === 'amend' && selectedDoc}
           <DocumentEditor
@@ -536,7 +661,8 @@
             folderId={selectedFolder}
             folders={tree.live}
             onDone={onEditorDone}
-            onCancel={() => (editing = null)}
+            onCancel={cancelEdit}
+            onDirtyChange={(dirty) => (editorDirty = dirty)}
           />
         {:else if selectedDoc && files && search}
           <DocumentView
@@ -633,6 +759,14 @@
   }
   .pane-start {
     border-right: 1px solid rgba(128, 128, 128, 0.3);
+  }
+  /* A column, so the sticky PaneHeader sits above an occupant that fills the
+     rest of the pane. The occupants keep their own padding (all 1rem) — the
+     header is their sibling, not their wrapper, so it pads itself to match
+     rather than padding them. */
+  .pane-end {
+    display: flex;
+    flex-direction: column;
   }
   .bins {
     display: flex;

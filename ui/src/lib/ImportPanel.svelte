@@ -20,6 +20,7 @@
     fileStorage,
     search,
     onDone,
+    onRunningChange,
   }: {
     ark: ArkClient;
     tree: TreeStore;
@@ -27,6 +28,12 @@
     fileStorage: FileStorageClient;
     search?: SearchStore;
     onDone: () => void;
+    /**
+     * Reported up so the pane's close button can be disabled while documents
+     * are actually being written — the panel vanishing mid-run is worse than
+     * having no close button at all.
+     */
+    onRunningChange?: (running: boolean) => void;
   } = $props();
 
   let mdFiles = $state<ImportFile[]>([]);
@@ -45,6 +52,8 @@
     unmatched: AttachmentMatch['unmatched'];
     error?: string;
   } | null>(null);
+
+  $effect(() => onRunningChange?.(running));
 
   const EMPTY_MATCH: AttachmentMatch = { byImportId: new Map(), unmatched: [] };
   let attachmentMatch = $derived(
@@ -136,8 +145,10 @@
   }
 </script>
 
+<!-- No heading of its own: the pane header names this panel now (see
+     PaneHeader.svelte), and two "Import markdown" titles one above the other
+     was the first thing a shared header made redundant. -->
 <section>
-  <h3>Import markdown</h3>
   <p>
     Choose a folder of <code>.md</code> files with YAML front matter. Any attachment files named
     in the front matter can be selected too — pick the whole export folder.
@@ -201,12 +212,12 @@
 </section>
 
 <style>
-  /* The pane itself has no padding — each occupant pads itself, the way
-     DocumentView's article does. Without this the panel sits flush against
-     the split-panel divider. */
-  section { padding: 0.5rem 1rem 1rem; max-width: 46rem; }
-  /* The heading's own top margin sat on top of the pane's padding. */
-  section > h3:first-child { margin-top: 0; }
+  /* The pane itself has no padding — each occupant pads itself, at the same
+     1rem, and the pane header pads itself to match. Without this the panel
+     sits flush against the split-panel divider. */
+  section { padding: 1rem; max-width: 46rem; }
+  /* The first paragraph's own top margin doubled the header's padding. */
+  section > p:first-child { margin-top: 0; }
   .summary, .result, .failed-list { list-style: none; padding: 0; }
   .failed { color: #b91c1c; font-weight: bold; }
   .warn { color: #92400e; }

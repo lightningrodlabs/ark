@@ -16,6 +16,7 @@
     folders,
     onDone,
     onCancel,
+    onDirtyChange,
   }: {
     ark: ArkClient;
     signals: SignalStore;
@@ -25,18 +26,34 @@
     folders: Folder[];
     onDone: (original: ActionHash) => void;
     onCancel: () => void;
+    /**
+     * Reported up because only the editor knows: the pane's close button and
+     * Escape both need to ask before throwing typed text away, and must not
+     * ask when there is nothing to throw away.
+     */
+    onDirtyChange?: (dirty: boolean) => void;
   } = $props();
 
   // Captured once at open: the editor seeds local edit state from the
   // document being amended, then owns it — it must not react to later
   // changes to the `doc` prop while the author is mid-edit.
   const initial = (() => doc)();
-  let title = $state(initial?.meta.title ?? '');
-  let date = $state(initial?.meta.date ?? new Date().toISOString().slice(0, 10));
-  let body = $state(initial?.body ?? '');
+  const initialTitle = initial?.meta.title ?? '';
+  // Today's date for a create, so an untouched editor is still clean — see
+  // `dirty` below, which compares against exactly these three.
+  const initialDate = initial?.meta.date ?? new Date().toISOString().slice(0, 10);
+  const initialBody = initial?.body ?? '';
+  let title = $state(initialTitle);
+  let date = $state(initialDate);
+  let body = $state(initialBody);
   let saving = $state(false);
   let error = $state<string | undefined>(undefined);
   let preview = $derived(renderMarkdown(body));
+
+  // Against the values captured at open, not against the live `doc` prop:
+  // the editor owns its state from the moment it mounts (see `initial`).
+  let dirty = $derived(title !== initialTitle || date !== initialDate || body !== initialBody);
+  $effect(() => onDirtyChange?.(dirty));
 
   // Create-mode-only folder picker. Amend never touches filing links (see
   // fix brief), so it is out of scope here and the picker is not shown for
@@ -132,7 +149,11 @@
 </div>
 
 <style>
-  .editor { display: flex; flex-direction: column; gap: 0.5rem; padding: 1rem; height: 100%; }
+  /* `flex: 1 0 auto` rather than `height: 100%`: the editor is now a flex
+     item under the pane's header (App.svelte's .pane-end), so 100% of the
+     pane would overflow it by exactly the header's height. Grow to fill a
+     short pane, never shrink below the content of a tall one. */
+  .editor { display: flex; flex-direction: column; gap: 0.5rem; padding: 1rem; flex: 1 0 auto; }
   .fields { display: flex; gap: 0.5rem; }
   .fields input:first-child { flex: 1; }
   .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; flex: 1; min-height: 20rem; }
