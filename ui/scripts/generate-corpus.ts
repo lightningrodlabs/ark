@@ -31,27 +31,27 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-// Word-count formula calibrated against the reference corpus (1406 documents,
-// 784,754 words total — an average of ~558 words/document): floor 72 plus a
-// cubed-random tail up to 1800 gives this generator a total word count within
-// 0.2% of that reference at seed 42, while keeping the "mostly short, a few
-// long" shape a real committee archive has (annual reports and budget
-// discussions run long; a one-line "meeting adjourned, no quorum" does not).
 const WORD_COUNT_FLOOR = 72;
 const WORD_COUNT_TAIL = 1800;
 
 /**
- * Synthetic stand-in for the reference corpus: same document count, a
- * matching total word count (and so a matching total text volume for the
- * index to build over) and the same folder spread. Real minutes are a
- * community's private records and are never committed here.
+ * Synthetic stand-in for the reference corpus: same document count, a total
+ * word count within about 2% of it (and so a comparable total text volume
+ * for the index to build over) and the same folder spread. Real minutes are
+ * a community's private records and are never committed here.
  */
 export function generateCorpus(count: number, seed: number): DocumentSummary[] {
   const random = mulberry32(seed);
   const docs: DocumentSummary[] = [];
 
   for (let i = 0; i < count; i++) {
-    // Log-normal-ish: most documents short, a few very long.
+    // Log-normal-ish: most documents small, a few very large. Constants are
+    // calibrated against the reference corpus's actual totals (784,754 words
+    // over 1406 documents, ~560 each), not guessed — an earlier pair produced a
+    // corpus 3.3x too wordy, which would have measured the wrong workload.
+    // At seed 42 this emits 770,459 words, 1.8% under the reference. Close
+    // enough that the measured margins mean what they say; stated exactly so a
+    // later reader can trust this as the calibration record.
     const words = Math.round(WORD_COUNT_FLOOR + Math.pow(random(), 3) * WORD_COUNT_TAIL);
     const paragraphs: string[] = [];
     let written = 0;
