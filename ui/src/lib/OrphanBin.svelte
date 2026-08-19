@@ -37,16 +37,23 @@
   async function moveAll() {
     if (!destination || documents.length === 0 || moving) return;
     moving = true;
+    // Snapshot before the loop: `documents` is a live prop, and each
+    // successful move shrinks the parent's derived list (and so this prop)
+    // mid-loop. Iterating and sizing off a fixed copy keeps both the
+    // iteration and the failure-message counts accurate regardless of how
+    // much the bin has shrunk underneath by the time a later move fails.
+    const batch = [...documents];
+    const total = batch.length;
     let moved = 0;
     try {
-      for (const doc of documents) {
+      for (const doc of batch) {
         await onRefile(doc.original, fromFolderId, destination);
         moved += 1;
       }
     } catch (e) {
-      const remaining = documents.length - moved;
+      const remaining = total - moved;
       alert(
-        `Moved ${moved} of ${documents.length} document(s); stopped after a failure. ` +
+        `Moved ${moved} of ${total} document(s); stopped after a failure. ` +
           `${remaining} document(s) are still here.\n\n${e}`,
       );
     } finally {

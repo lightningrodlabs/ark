@@ -66,6 +66,19 @@ describe('trash and orphans', () => {
     ]);
   });
 
+  it('names the folder a trashed document was in even after that folder is deleted', async () => {
+    const docs = [summary(1, 'Trashed and stranded')];
+    const store = new DocumentStore(
+      fakeArk(docs, [{ folder_id: 'gone', documents: [hash(1)] }], [hash(1)]),
+      100,
+    );
+    await store.load(folders);
+    // Resolving `wasIn` has to look at ALL folders, tombstones included — a
+    // trash entry reading "was in (unknown)" is exactly the case where knowing
+    // where it came from matters most.
+    expect(trashEntries(store, folders)[0].wasIn).toEqual('Old Committee');
+  });
+
   it('names the deleted folder on its bin so it can be re-filed knowingly', async () => {
     const docs = [summary(2, 'Stranded')];
     const store = new DocumentStore(
