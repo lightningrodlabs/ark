@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { runScenario, dhtSync } from '@holochain-open-dev/tryorama';
-import { ActionHash } from '@holochain/client';
+import { ActionHash, encodeHashToBase64 } from '@holochain/client';
 import { appSource, call, arkCell } from '../common.js';
+
+const b64 = (h: ActionHash) => encodeHashToBase64(h);
 
 type DocumentSummary = {
   original: ActionHash;
@@ -60,6 +62,23 @@ describe('documents', () => {
       });
       expect(page.total).toEqual(5);
       expect(page.documents).toHaveLength(2);
+    });
+  });
+
+  it('lists document hashes matching what was created, stable across calls', async () => {
+    await runScenario(async (scenario) => {
+      const [alice] = await scenario.addPlayersWithApps([appSource]);
+
+      const created: ActionHash[] = [];
+      for (let i = 0; i < 5; i++) {
+        created.push(await call<ActionHash>(alice, 'create_document', doc(`Doc ${i}`)));
+      }
+
+      const hashes = await call<ActionHash[]>(alice, 'get_document_hashes', null);
+      expect(hashes.map(b64).sort()).toEqual(created.map(b64).sort());
+
+      const again = await call<ActionHash[]>(alice, 'get_document_hashes', null);
+      expect(again.map(b64)).toEqual(hashes.map(b64));
     });
   });
 

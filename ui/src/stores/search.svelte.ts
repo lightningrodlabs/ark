@@ -30,6 +30,12 @@ export class SearchStore {
     this.index.upsert(doc);
   }
 
+  /** Drop a document that is no longer in the corpus. Keeps callers out of
+   * `index` directly. */
+  remove(original: ActionHash): void {
+    this.index.remove(original);
+  }
+
   /** Index an attachment's text under its parent document. Keeps callers out
    * of `index` directly. */
   setAttachmentText(original: ActionHash, name: string, text: string): void {

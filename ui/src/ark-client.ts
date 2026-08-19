@@ -63,6 +63,11 @@ export class ArkClient {
     return this.call('get_all_documents', { offset, limit });
   }
 
+  /** Links only, no entries resolved — cheap even at corpus scale. */
+  getDocumentHashes(): Promise<ActionHash[]> {
+    return this.call('get_document_hashes', null);
+  }
+
   getDocumentVersions(original: ActionHash): Promise<DocumentVersion[]> {
     return this.call('get_document_versions', original);
   }

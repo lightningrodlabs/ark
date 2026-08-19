@@ -13,6 +13,22 @@ export interface DeletedFolderBin {
   documents: DocumentSummary[];
 }
 
+export interface SyncResult {
+  /** Whether anything actually changed — documents, filings, or trash. */
+  changed: boolean;
+  /** Newly-fetched documents the caller should `upsert` into the search index. */
+  upserted: DocumentSummary[];
+  /** Documents no longer present remotely, for the caller to `remove` from the
+   * search index. */
+  departed: ActionHash[];
+  /**
+   * True when the delta was too large for individual `getDocument` calls and
+   * `load()` ran instead. `upserted`/`departed` are empty in this case — the
+   * caller should rebuild the index rather than try to apply them.
+   */
+  fellBack: boolean;
+}
+
 /**
  * Every document in memory. The archive is small enough that this is simply the
  * whole corpus — about 5 MB of text for the reference workload — which is what
@@ -88,6 +104,72 @@ export class DocumentStore {
     if (await this.loadFilings(folders)) changed = true;
     if (await this.loadTrashed()) changed = true;
     return changed;
+  }
+
+  /**
+   * Incremental counterpart to `load()`. `get_document_hashes` reads links
+   * only and resolves no entries, so it stays cheap at corpus scale; this
+   * fetches individually only the documents that are new since the last sync,
+   * and drops ones that departed, instead of re-paging all 1406 to discover
+   * the same one-document delta.
+   *
+   * Above `this.chunk` missing documents — the same page size `load()` uses —
+   * fetching each one individually would cost more round trips than one paged
+   * reload, and a peer that far behind is the pathological case (a cold start,
+   * or one that has been offline a long time): falls back to `load()`.
+   *
+   * Does not touch the search index itself — `upserted`/`departed` tell the
+   * caller what changed so it can apply the existing `SearchStore`
+   * pass-throughs (`upsert`/`remove`) rather than rebuilding, which is the
+   * expensive half of a reconcile and repaints every search result as a side
+   * effect even for a single new document.
+   */
+  async syncMissing(folders: Folder[]): Promise<SyncResult> {
+    const hashes = await this.ark.getDocumentHashes();
+    const remoteKeys = new Set(hashes.map(key));
+    const missingHashes = hashes.filter((h) => !this.byOriginal.has(key(h)));
+    const departed = [...this.byOriginal.values()].filter(
+      (doc) => !remoteKeys.has(key(doc.original)),
+    );
+
+    if (missingHashes.length > this.chunk) {
+      const changed = await this.load(folders);
+      return { changed, upserted: [], departed: [], fellBack: true };
+    }
+
+    if (missingHashes.length === 0 && departed.length === 0) {
+      const filingsChanged = await this.loadFilings(folders);
+      const trashedChanged = await this.loadTrashed();
+      return {
+        changed: filingsChanged || trashedChanged,
+        upserted: [],
+        departed: [],
+        fellBack: false,
+      };
+    }
+
+    const fetched = await Promise.all(missingHashes.map((h) => this.ark.getDocument(h)));
+    const next = new Map(this.byOriginal);
+    for (const doc of departed) next.delete(key(doc.original));
+    const upserted: DocumentSummary[] = [];
+    for (const doc of fetched) {
+      if (doc) {
+        next.set(key(doc.original), doc);
+        upserted.push(doc);
+      }
+    }
+    // Assigned once, not once per fetched document — this is the map
+    // reassignment that repaints reactive views, so it happens exactly once
+    // regardless of how many documents were missing.
+    this.byOriginal = next;
+    this.loaded = next.size;
+    this.total = hashes.length;
+    this.missing = hashes.length - next.size;
+
+    await this.loadFilings(folders);
+    await this.loadTrashed();
+
+    return { changed: true, upserted, departed: departed.map((d) => d.original), fellBack: false };
   }
 
   /**

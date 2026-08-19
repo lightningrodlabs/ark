@@ -67,6 +67,13 @@ pub fn all_document_hashes() -> ExternResult<Vec<ActionHash>> {
         .collect()
 }
 
+/// Thin wrapper over `all_document_hashes` for a cheap incremental-sync check:
+/// links only, no entries resolved, so it stays cheap even at corpus scale.
+#[hdk_extern]
+pub fn get_document_hashes(_: ()) -> ExternResult<Vec<ActionHash>> {
+    all_document_hashes()
+}
+
 #[hdk_extern]
 pub fn get_all_documents(input: GetAllInput) -> ExternResult<GetAllOutput> {
     let hashes = all_document_hashes()?;

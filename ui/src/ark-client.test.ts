@@ -41,13 +41,21 @@ describe('ArkClient', () => {
     expect(calls[0].payload).toBeNull();
   });
 
+  it('calls get_document_hashes with a null payload', async () => {
+    const { client, calls } = fakeClient();
+    const ark = new ArkClient(client);
+    await ark.getDocumentHashes();
+    expect(calls[0].fn_name).toEqual('get_document_hashes');
+    expect(calls[0].payload).toBeNull();
+  });
+
   it('wraps every extern the DNA exposes', async () => {
     const { client } = fakeClient();
     const ark = new ArkClient(client);
     // The DNA's extern list. A method missing here is a gap ten later tasks
     // would each rediscover.
     const externs = [
-      'createDocument', 'getDocument', 'getAllDocuments', 'amendDocument',
+      'createDocument', 'getDocument', 'getAllDocuments', 'getDocumentHashes', 'amendDocument',
       'getDocumentVersions', 'moveDocument', 'getFilings', 'getFolderTree',
       'updateFolderTree', 'trashDocument', 'restoreDocument', 'getTrashed',
       'attachFile', 'detachFile', 'getAttachments', 'notifyPeers', 'whoami',

@@ -27,6 +27,7 @@ function fakeArk(docs: DocumentSummary[], filings: FolderFiling[], trashed: any[
       total: docs.length,
       documents: docs.slice(offset, offset + limit),
     })),
+    getDocumentHashes: vi.fn(async () => docs.map((d) => d.original)),
     getFilings: vi.fn(async (ids: string[]) =>
       ids.map((id) => filings.find((f) => f.folder_id === id) ?? { folder_id: id, documents: [] }),
     ),
@@ -284,6 +285,85 @@ describe('DocumentStore', () => {
 
       docs[0] = { ...docs[0], latest: hash(99), body: 'amended' };
       expect(await store.changedSince()).toBe(false);
+    });
+  });
+
+  describe('syncMissing', () => {
+    it('fetches nothing and assigns nothing when the hash list matches exactly', async () => {
+      const docs = [summary(1, 'One'), summary(2, 'Two')];
+      const filings: FolderFiling[] = [{ folder_id: 'root', documents: [hash(1), hash(2)] }];
+      const ark = fakeArk(docs, filings, [hash(2)]);
+      const store = new DocumentStore(ark, 100);
+      await store.load(folders);
+      const docsBefore = store.byOriginal;
+
+      const result = await store.syncMissing(folders);
+
+      expect(result).toEqual({ changed: false, upserted: [], departed: [], fellBack: false });
+      expect(store.byOriginal).toBe(docsBefore);
+      expect(ark.getDocument).not.toHaveBeenCalled();
+    });
+
+    it('fetches only the one document that is missing', async () => {
+      const docs = [summary(1, 'One'), summary(2, 'Two')];
+      const ark = fakeArk(docs, []);
+      const store = new DocumentStore(ark, 100);
+      await store.load(folders);
+      const docsBefore = store.byOriginal;
+
+      docs.push(summary(3, 'Three'));
+      const result = await store.syncMissing(folders);
+
+      expect(result.changed).toBe(true);
+      expect(result.fellBack).toBe(false);
+      expect(result.upserted.map((d) => d.meta.title)).toEqual(['Three']);
+      expect(result.departed).toEqual([]);
+      // Exactly one call, for the missing hash only — not a re-page of the
+      // whole corpus.
+      expect(ark.getDocument).toHaveBeenCalledOnce();
+      expect(ark.getDocument).toHaveBeenCalledWith(hash(3));
+      // Assigned once: a brand-new map, but a single reassignment.
+      expect(store.byOriginal).not.toBe(docsBefore);
+      expect(store.byOriginal.size).toEqual(3);
+      expect(store.total).toEqual(3);
+      expect(store.missing).toEqual(0);
+    });
+
+    it('drops a document that departed from both the map and the report', async () => {
+      const docs = [summary(1, 'One'), summary(2, 'Two')];
+      const ark = fakeArk(docs, []);
+      const store = new DocumentStore(ark, 100);
+      await store.load(folders);
+
+      docs.splice(1, 1); // "Two" is gone remotely
+      const result = await store.syncMissing(folders);
+
+      expect(result.changed).toBe(true);
+      expect(result.upserted).toEqual([]);
+      expect(result.departed).toEqual([hash(2)]);
+      expect(store.byOriginal.has(key(hash(2)))).toBe(false);
+      expect(store.byOriginal.size).toEqual(1);
+      expect(ark.getDocument).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the paged load when the missing count exceeds the chunk size', async () => {
+      const docs = Array.from({ length: 3 }, (_, i) => summary(i, `Doc ${i}`));
+      const ark = fakeArk(docs, []);
+      const store = new DocumentStore(ark, 2); // chunk = 2
+      await store.load(folders);
+
+      // 3 more documents appear remotely — more than the chunk size of 2.
+      for (let i = 3; i < 6; i++) docs.push(summary(i, `Doc ${i}`));
+      const result = await store.syncMissing(folders);
+
+      expect(result.fellBack).toBe(true);
+      expect(result.changed).toBe(true);
+      expect(result.upserted).toEqual([]);
+      expect(result.departed).toEqual([]);
+      // No individual getDocument calls for the missing set — load() paged
+      // instead, via getAllDocuments.
+      expect(ark.getDocument).not.toHaveBeenCalled();
+      expect(store.byOriginal.size).toEqual(6);
     });
   });
 
