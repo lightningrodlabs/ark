@@ -222,7 +222,10 @@
 
   let searchResults = $derived.by(() => {
     if (!search || !tree || !searching) return [];
-    return search.run(selectedFolder, tree.live);
+    // Global by default: folder scope comes only from search.folderScope, an
+    // explicit opt-in the user turns on in SearchBar, never from
+    // `selectedFolder` — see SearchBar's scope chip.
+    return search.run(tree.live);
   });
 
   function selectFolder(id: string | null) {
@@ -315,7 +318,12 @@
     if (doc) openDoc(doc);
   }
 
-  let unfiledDocs = $derived(store ? store.unfiled() : []);
+  // Suppressed entirely while structurePending: with the tree not fully
+  // arrived, a document filed under a folder id this device does not know
+  // about yet reads identically to a genuinely unfiled one (see
+  // DocumentStore.unfiled). Showing it here, next to "Move all here", risks
+  // re-filing documents that were never actually unfiled.
+  let unfiledDocs = $derived(store && tree && !tree.structurePending ? store.unfiled() : []);
   let deletedBins = $derived(store && tree ? store.inDeletedFolders(tree.folders) : []);
   let trashList = $derived(store && tree ? trashEntries(store, tree.folders) : []);
 
@@ -344,6 +352,28 @@
   {:else if !store || loadingDocs || !signals}
     <p>Loading documents… {loaded}</p>
   {:else}
+    <!-- A node can gossip in a document's filing link before the folder-tree
+         entry that names its folder — the tree's root LINK arrives, but not
+         yet the entry a resolvable head needs (see TreeStore.structurePending).
+         Read literally, that looks like "this archive has no folders", which
+         would put every filed document in the Unfiled bin next to "Move all
+         here" — real damage to an archive that was never actually unfiled.
+         This banner says what is actually going on instead, and the Unfiled
+         bin below is suppressed entirely for the same reason. Nothing else is
+         gated: documents already on this device stay readable and searchable
+         while the structure catches up. -->
+    {#if tree.structurePending}
+      <p class="structure-pending-note">
+        This archive's folder structure has not finished arriving on this
+        device yet, so folders and filings below may be incomplete — the
+        Unfiled bin is hidden until they catch up so nothing gets re-filed by
+        mistake. {store.total !== null ? `${store.total - store.missing} of ${store.total}` : store.loaded}
+        document{store.total === 1 ? '' : 's'} already {store.total === 1 ? 'is' : 'are'} on this
+        device and stay readable and searchable below. This resolves on its
+        own as gossip completes.
+      </p>
+    {/if}
+
     {#if store.missing > 0}
       <p class="missing-note">
         {store.missing} document{store.missing === 1 ? '' : 's'}
@@ -369,6 +399,8 @@
             {searching}
             {locationOf}
             {authors}
+            {selectedFolder}
+            folders={tree.live}
             onSelect={(hit) => openDoc(hit.doc)}
           />
         </div>
@@ -545,6 +577,17 @@
     padding: 0.5rem 0.75rem;
     background: #fef3c7;
     color: #92400e;
+    border-radius: 4px;
+    flex: none;
+  }
+  /* A stronger tone than .missing-note: this is not "a few documents are
+     still syncing", it is "do not trust the folder view yet" — the state
+     that made a whole archive look Unfiled before this fix existed. */
+  .structure-pending-note {
+    margin: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: #dbeafe;
+    color: #1e3a8a;
     border-radius: 4px;
     flex: none;
   }

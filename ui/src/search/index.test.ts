@@ -114,6 +114,48 @@ describe('ArkIndex', () => {
     ]);
   });
 
+  // The reported bug: App.svelte used to pass the tree's selected folder
+  // straight through as the search filter, so an unscoped search silently
+  // inherited whatever was selected in the tree. With no folderId, a document
+  // must match regardless of `filings` state — including the exact state a
+  // stale or not-yet-loaded tree selection left behind, an empty filings map.
+  it('matches regardless of filings state when no folder scope is set', () => {
+    const withNoFilings = makeIndex();
+    expect(withNoFilings.search('roof', noFilters).length).toBe(2);
+
+    const withFilings = makeIndex();
+    withFilings.setFilings(filings);
+    expect(withFilings.search('roof', noFilters).length).toBe(2);
+  });
+
+  // Companion to the above: scoping must still narrow correctly once a caller
+  // actually asks for it. This is the behaviour the fix must not regress.
+  it('still narrows to a folder and its descendants when scope is explicitly requested', () => {
+    const index = makeIndex();
+    index.setFilings(filings);
+    const hits = index.search('roof', { ...noFilters, folderId: 'bl' });
+    expect(hits.map((h) => h.doc.meta.title).sort()).toEqual(['Buildings and Land, May']);
+  });
+
+  // Decision for a document whose folder is not yet known — the tree may
+  // still be arriving from other peers. An unscoped search must still find
+  // it (never silently exclude); a scoped one excludes it, the same as any
+  // other folder mismatch, because "in this folder" cannot be claimed for a
+  // location that isn't known yet. The scoped-zero-results fallback in
+  // SearchBar is what recovers a document dropped for this reason.
+  it('excludes a document of unknown location from a scoped search, never from an unscoped one', () => {
+    const index = makeIndex();
+    index.upsert(doc(4, 'Buildings and Land, unknown filing', 'Roof survey pending.', '2024-01-01'));
+    index.setFilings(filings); // doc 4 has no entry — its filing is not yet known
+
+    expect(index.search('roof', noFilters).map((h) => h.doc.meta.title)).toContain(
+      'Buildings and Land, unknown filing',
+    );
+
+    const scoped = index.search('roof', { ...noFilters, folderId: 'bl' });
+    expect(scoped.map((h) => h.doc.meta.title)).not.toContain('Buildings and Land, unknown filing');
+  });
+
   it('filters a real search by author', () => {
     const index = makeIndex();
     const mine = encodeHashToBase64(hash(2));

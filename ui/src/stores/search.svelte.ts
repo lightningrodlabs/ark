@@ -11,6 +11,14 @@ export class SearchStore {
   to = $state<string | null>(null);
   author = $state<string | null>(null);
   includeTrashed = $state(false);
+  // Search is global unless the user explicitly opts in to a folder scope —
+  // it must never be inherited from whatever happens to be selected in the
+  // tree (that was the reported bug: a search silently scoped to the
+  // selected folder returned nothing because the archive's 1406 documents
+  // were not all filed there). `label` is carried alongside the id purely so
+  // the search bar can render "in <label>" without reaching back into the
+  // tree once the scope has latched — see SearchBar's `enableScope`.
+  folderScope = $state<{ id: string; label: string } | null>(null);
 
   constructor(private documents: DocumentStore) {}
 
@@ -48,8 +56,8 @@ export class SearchStore {
     this.index.removeAttachmentText(original, name);
   }
 
-  run(folderId: string | null, folders: Folder[]): SearchHit[] {
-    const filters: SearchFilters = {
+  private filters(folders: Folder[], folderId: string | null): SearchFilters {
+    return {
       folderId,
       folders,
       from: this.from,
@@ -57,6 +65,23 @@ export class SearchStore {
       author: this.author,
       includeTrashed: this.includeTrashed,
     };
-    return this.index.search(this.query, filters);
+  }
+
+  /** Runs the current query, scoped to `folderScope` when one is set — never
+   * to whatever is merely selected in the tree. */
+  run(folders: Folder[]): SearchHit[] {
+    return this.index.search(this.query, this.filters(folders, this.folderScope?.id ?? null));
+  }
+
+  /**
+   * How many hits the current query would have with no folder scope. Used
+   * only to power the scoped-zero-results fallback ("N found in the whole
+   * archive — search everywhere?") — a scoped search that comes up empty
+   * must say so and offer the way out rather than going quiet, which is a
+   * milder form of the same bug this store exists to prevent.
+   */
+  unscopedCount(folders: Folder[]): number {
+    if (!this.folderScope) return 0;
+    return this.index.search(this.query, this.filters(folders, null)).length;
   }
 }

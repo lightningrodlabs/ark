@@ -3,6 +3,8 @@
   import type { AgentPubKey } from '@holochain/client';
   import type { SearchStore } from '../stores/search.svelte';
   import type { SearchHit } from '../search/index';
+  import type { Folder } from '../types';
+  import { folderPathLabel } from '../tree/paths';
   import AgentAvatar from './AgentAvatar.svelte';
   import SearchResults from './SearchResults.svelte';
 
@@ -12,6 +14,8 @@
     searching,
     locationOf,
     authors,
+    selectedFolder,
+    folders,
     onSelect,
   }: {
     search: SearchStore;
@@ -23,8 +27,38 @@
      * search.author) plus the raw agent key AgentAvatar needs to resolve a
      * profile avatar or fall back to an identicon. */
     authors: { key: string; hash: AgentPubKey }[];
+    /** The folder currently selected in the tree, if any. This is only ever
+     * the *candidate* for a scope offer below — it is never applied to a
+     * search on its own. Search scope comes exclusively from
+     * `search.folderScope`, set only when the user clicks the offer. */
+    selectedFolder: string | null;
+    folders: Folder[];
     onSelect: (hit: SearchHit) => void;
   } = $props();
+
+  // The folder scope offer: shown only while a folder is selected in the tree
+  // AND no scope is active yet. Once the user turns it on, the scope latches
+  // to that folder id/label and no longer tracks further tree navigation —
+  // it changes only when the user dismisses the chip. This is what makes
+  // scoping visible and opt-in rather than an invisible side effect of
+  // clicking around the tree (see docs/dev — the reported bug).
+  let scopeOfferLabel = $derived(selectedFolder ? folderPathLabel(folders, selectedFolder) : null);
+
+  function enableScope() {
+    if (!selectedFolder) return;
+    search.folderScope = { id: selectedFolder, label: scopeOfferLabel ?? selectedFolder };
+  }
+
+  function clearScope() {
+    search.folderScope = null;
+  }
+
+  // A scoped search that comes up empty must say so and offer the way out,
+  // rather than going quiet the same way the unscoped bug did. Only computed
+  // when it can matter: a scope is active and the current hits are empty.
+  let unscopedFallbackCount = $derived(
+    search.folderScope && searching && hits.length === 0 ? search.unscopedCount(folders) : 0,
+  );
 
   let showFilters = $state(false);
   let input: HTMLInputElement | undefined = $state();
@@ -52,8 +86,11 @@
 
   // An empty query with no filters is not a search — nothing to float over the
   // tree. `searching` is the app's own definition of that, reused rather than
-  // re-derived so the overlay and the result count can never disagree.
-  let open = $derived(searching && !dismissed && hits.length > 0);
+  // re-derived so the overlay and the result count can never disagree. A
+  // scoped search with zero hits still opens when the same query would find
+  // something outside the scope — the fallback prompt below is the whole
+  // point, and it must be visible, not hidden behind an empty-looking bar.
+  let open = $derived(searching && !dismissed && (hits.length > 0 || unscopedFallbackCount > 0));
 
   // Any change to the query or filters is a fresh search: re-open an overlay
   // Escape closed, and drop an active row that no longer refers to the same
@@ -143,6 +180,26 @@
       aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
       autocomplete="off"
     />
+    <!-- Folder scope: an explicit, visible opt-in rather than anything
+         inherited from the tree. `search.folderScope` only ever changes here
+         — set by clicking the offer, cleared by dismissing the chip. -->
+    {#if search.folderScope}
+      <span class="scope-chip">
+        in {search.folderScope.label}
+        <button
+          type="button"
+          class="scope-dismiss"
+          aria-label="Remove folder scope"
+          onclick={clearScope}
+        >
+          ✕
+        </button>
+      </span>
+    {:else if scopeOfferLabel}
+      <button type="button" class="scope-offer" onclick={enableScope}>
+        Scope to {scopeOfferLabel}
+      </button>
+    {/if}
     <button class="filters-toggle" onclick={() => (showFilters = !showFilters)}>Filters</button>
     <span class="count">{hits.length} result{hits.length === 1 ? '' : 's'}</span>
   </div>
@@ -207,6 +264,18 @@
           </span>
           <span class="panel-hint">↑↓ to move · Enter to open · Esc to close</span>
         </div>
+        <!-- The scoped-zero-results fallback (item 3 of the search-scope
+             fix): a scoped search finding nothing must say so and offer the
+             way out, rather than looking exactly like "no matches anywhere",
+             which is a milder form of the bug this whole feature exists to
+             fix. -->
+        {#if hits.length === 0 && unscopedFallbackCount > 0}
+          <p class="scope-empty">
+            No results in {search.folderScope?.label}. {unscopedFallbackCount} found in the whole
+            archive.
+            <button type="button" onclick={clearScope}>Search everywhere</button>
+          </p>
+        {/if}
         <SearchResults
           hits={visible}
           {activeIndex}
@@ -238,6 +307,44 @@
     box-sizing: border-box;
     font: inherit;
     padding: 0.3rem 0.5rem;
+  }
+  .scope-offer,
+  .scope-chip {
+    flex: none;
+    white-space: nowrap;
+    font-size: 0.85em;
+    border-radius: 999px;
+    padding: 0.2rem 0.6rem;
+  }
+  .scope-offer {
+    background: none;
+    border: 1px dashed rgba(128, 128, 128, 0.6);
+    cursor: pointer;
+  }
+  .scope-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border: 1px solid currentColor;
+    background: rgba(120, 150, 220, 0.15);
+  }
+  .scope-dismiss {
+    background: none;
+    border: none;
+    padding: 0;
+    line-height: 1;
+    cursor: pointer;
+    font: inherit;
+  }
+  .scope-empty {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85em;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+    flex: none;
+  }
+  .scope-empty button {
+    margin-left: 0.35rem;
   }
   .panel {
     display: flex;
