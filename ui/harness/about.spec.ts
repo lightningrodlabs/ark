@@ -41,6 +41,22 @@ test('Import is reached from the dialog, and has no toolbar button of its own', 
   await expect(page.locator('[data-testid="pane-close"]')).toBeVisible();
 });
 
+test('the dialog carries the copyright notice and a link to the repo', async ({ page }) => {
+  await page.goto('/harness/index.html');
+  await expect(page.getByRole('button', { name: 'New document' })).toBeVisible();
+  await page.locator('sl-icon-button.about').click();
+
+  await expect(page.locator('[data-testid="about-dialog"]')).toBeVisible();
+  await expect(page.locator('.colophon')).toContainText('Lightningrod Labs');
+
+  // An http(s) link is the one navigation Moss lets out to the OS browser;
+  // target=_blank without rel=noopener would hand it a live opener reference.
+  const repo = page.locator('[data-testid="about-repo"]');
+  await expect(repo).toHaveAttribute('href', 'https://github.com/lightningrodlabs/ark');
+  await expect(repo).toHaveAttribute('target', '_blank');
+  await expect(repo).toHaveAttribute('rel', /noopener/);
+});
+
 test('Export writes a zip the browser can save, holding the archive', async ({ page }) => {
   await page.goto('/harness/index.html');
   await createRootFolder(page, 'Finance and Legal');

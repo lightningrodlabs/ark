@@ -29,6 +29,8 @@
   } = $props();
 
   const version = __ARK_VERSION__;
+  const REPO_URL = 'https://github.com/lightningrodlabs/ark';
+  const COPYRIGHT_YEAR = 2026;
 
   let copied = $state<string | null>(null);
   let exporting = $state(false);
@@ -217,9 +219,33 @@
   {#if error}
     <p class="failed" data-testid="about-error">{error}</p>
   {/if}
+
+  <footer class="colophon">
+    <span>&copy; {COPYRIGHT_YEAR} Lightningrod Labs</span>
+    <!-- Moss denies window.open for everything except http(s), which it hands
+         to the OS browser — so an ordinary external link is the one navigation
+         that does work from inside the applet. -->
+    <a
+      href={REPO_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-testid="about-repo">{REPO_URL.replace('https://', '')}</a
+    >
+  </footer>
 </sl-dialog>
 
 <style>
+  .colophon {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-top: 1.25rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid rgba(128, 128, 128, 0.3);
+    font-size: 0.85rem;
+    opacity: 0.8;
+  }
   .facts {
     display: grid;
     grid-template-columns: auto 1fr;
