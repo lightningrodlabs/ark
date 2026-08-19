@@ -72,10 +72,11 @@ export function cleanGoogleDocsHtml(html: string): string {
     if (!firstRow) return;
     const cells = [...firstRow.children].filter((c) => c.tagName === 'TD');
     if (cells.length === 0) return;
-    const headerish = cells.every((cell) => {
-      const text = (cell.textContent ?? '').trim();
-      return text === '' || cell.querySelector('strong, b') !== null;
-    });
+    const isBold = (cell: Element) => cell.querySelector('strong, b') !== null;
+    const isBlank = (cell: Element) => (cell.textContent ?? '').trim() === '';
+    // Blank cells are allowed in a header row, but a row that is *only* blanks
+    // and one bold cell is a data row (["", "**Total**", ""]), not a header.
+    const headerish = cells.some(isBold) && cells.every((c) => isBlank(c) || isBold(c));
     if (!headerish) return;
     for (const cell of cells) {
       const th = doc.createElement('th');

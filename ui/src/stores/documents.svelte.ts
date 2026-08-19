@@ -123,9 +123,16 @@ export class DocumentStore {
 
   async applySignal(signal: ArkSignal): Promise<void> {
     switch (signal.type) {
-      case 'DocumentCreated':
       case 'DocumentAmended':
         await this.refreshDocument(signal.original);
+        break;
+      case 'DocumentCreated':
+        // Also re-read filings: a document created by another peer arrives with
+        // a filing LINK that refreshDocument cannot see, so without this it
+        // shows up in "all documents" but not in the folder someone filed it
+        // into — the same gap the editor path had, on the remote side.
+        await this.refreshDocument(signal.original);
+        await this.refreshFilings();
         break;
       case 'DocumentTrashed': {
         const next = new Set(this.trashed);

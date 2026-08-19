@@ -125,4 +125,21 @@ describe('DocumentStore', () => {
     await store.applySignal({ type: 'DocumentCreated', original: hash(9) });
     expect(store.byOriginal.get(key(hash(9)))!.meta.title).toEqual('Nine');
   });
+
+  it('files a peer-created document into its folder without a reload', async () => {
+    const docs = [summary(1, 'Mine')];
+    const filings: FolderFiling[] = [{ folder_id: 'root', documents: [hash(1)] }];
+    const ark = fakeArk(docs, filings);
+    const store = new DocumentStore(ark, 100);
+    await store.load(folders);
+
+    // A peer creates a document into 'child'. The signal carries only a hash;
+    // the filing is a link, so the store has to re-read filings or the document
+    // appears in "all documents" but nowhere in the tree.
+    docs.push(summary(2, 'Theirs'));
+    filings.push({ folder_id: 'child', documents: [hash(2)] });
+    await store.applySignal({ type: 'DocumentCreated', original: hash(2) });
+
+    expect(store.inFolder('child', folders).map((d) => d.meta.title)).toEqual(['Theirs']);
+  });
 });
