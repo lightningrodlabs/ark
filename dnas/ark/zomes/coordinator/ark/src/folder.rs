@@ -1,6 +1,6 @@
 use ark_integrity::*;
 use hdk::prelude::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::resolve::{all_tips, decode_entry};
 use crate::types::*;
@@ -50,12 +50,28 @@ pub fn get_folder_tree(_: ()) -> ExternResult<Vec<TreeHead>> {
 /// Reconciling forked heads is still entirely the UI's job.
 #[hdk_extern]
 pub fn update_folder_tree(input: UpdateFolderTreeInput) -> ExternResult<ActionHash> {
-    let mut tip_records = Vec::new();
+    let mut tip_records: Vec<Record> = Vec::new();
     for root in tree_roots()? {
         for record in all_tips(root)? {
             tip_records.push(record);
         }
     }
+
+    // Oldest tip first, ties by action hash, so a newer tip's version of a folder
+    // replaces an older one below. Tip order out of `all_tips` is a DFS pop order
+    // and carries no guarantee, so without this sort two peers scanning the same
+    // tips could carry forward different content for the same id and durably
+    // commit both — the opposite of converging.
+    tip_records.sort_by(|a, b| {
+        a.action()
+            .timestamp()
+            .cmp(&b.action().timestamp())
+            .then_with(|| {
+                a.action_address()
+                    .get_raw_39()
+                    .cmp(b.action_address().get_raw_39())
+            })
+    });
 
     // Carry forward any folder id the caller did not send. The caller (the UI)
     // has already merged every head it could see, but another agent may have
@@ -67,16 +83,20 @@ pub fn update_folder_tree(input: UpdateFolderTreeInput) -> ExternResult<ActionHa
     // This is the ONLY merging the zome does. Reconciling forked heads is still
     // the UI's job, because only it can apply the newest-action-wins rule.
     let mut folders = input.folders;
-    let mut known: BTreeSet<String> = folders.iter().map(|f| f.id.clone()).collect();
+    let caller_ids: BTreeSet<String> = folders.iter().map(|f| f.id.clone()).collect();
+    let mut carried: BTreeMap<String, Folder> = BTreeMap::new();
     for record in &tip_records {
         if let Some(tree) = decode_entry::<FolderTree>(record, "FolderTree")? {
             for folder in tree.folders {
-                if known.insert(folder.id.clone()) {
-                    folders.push(folder);
+                // An id the caller sent is never overridden. Among tips, the
+                // newest wins — the same rule the UI applies across heads.
+                if !caller_ids.contains(&folder.id) {
+                    carried.insert(folder.id.clone(), folder);
                 }
             }
         }
     }
+    folders.extend(carried.into_values());
 
     let tree = FolderTree { folders };
     let mut tips: Vec<ActionHash> = tip_records

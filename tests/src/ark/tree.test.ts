@@ -90,6 +90,29 @@ describe('folder tree', () => {
     });
   });
 
+  it('keeps a tombstone through carry-forward rather than resurrecting the folder', async () => {
+    await runScenario(async (scenario) => {
+      const [alice] = await scenario.addPlayersWithApps([appSource]);
+
+      await call(alice, 'update_folder_tree', {
+        folders: [folder('f1', 'Doomed'), folder('f2', 'Keeper')],
+      });
+
+      // Caller sends f1 tombstoned and omits f2 entirely. f2 must be carried
+      // forward, and f1 must stay deleted — carry-forward must not resurrect a
+      // folder the caller deliberately tombstoned.
+      await call(alice, 'update_folder_tree', {
+        folders: [{ ...folder('f1', 'Doomed'), deleted: true }],
+      });
+
+      const heads = await call<TreeHead[]>(alice, 'get_folder_tree', null);
+      const byId = Object.fromEntries(heads.flatMap((h) => h.folders).map((f) => [f.id, f]));
+      expect(byId['f1'].deleted).toBe(true);
+      expect(byId['f2']).toBeDefined();
+      expect(byId['f2'].deleted).toBe(false);
+    });
+  });
+
   it('rejects duplicate folder ids', async () => {
     await runScenario(async (scenario) => {
       const [alice] = await scenario.addPlayersWithApps([appSource]);
