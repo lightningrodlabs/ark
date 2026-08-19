@@ -183,9 +183,21 @@ chain. Rather than lock it, the UI resolves forks deterministically:
    newest tip would leave the loser's tip live forever, growing the tip count with
    every concurrent edit.
 
-Every peer computes the same tree from the same data. Concurrent "add a folder"
-never loses a folder. Concurrent renames of the *same* folder resolve
-last-writer-wins, which at the scale of a dozen committees is the right trade.
+Every peer computes the same tree from the same data. Concurrent renames of the
+*same* folder resolve last-writer-wins, which at the scale of a dozen committees
+is the right trade.
+
+Concurrent "add a folder" never loses a folder — but that takes one piece of
+merging in the zome, not just the client-side union. A caller sends a full folder
+list, and that list can be stale through no fault of its own: another agent may
+have added a folder between the caller's read and its write. Writing the list
+verbatim would erase it. So `update_folder_tree` carries forward any folder id the
+caller did not send. Ids the caller *did* send always win, so renames,
+re-parenting and `deleted` tombstones still take effect, and deletion is
+unaffected because it is a tombstone the caller sends rather than an omission.
+
+That is the only merging the zome does. Reconciling forked heads stays the UI's
+job, because only it can apply the newest-action-wins rule across heads.
 
 **Folder deletion must be a tombstone, not removal.** Union-by-id takes folders
 from all heads, so a folder removed from the vec would be resurrected by any
