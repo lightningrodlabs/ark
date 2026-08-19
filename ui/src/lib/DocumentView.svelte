@@ -32,13 +32,15 @@
     onTrash: () => void;
   } = $props();
 
-  // dnaHash is only ever set inside Moss (App.svelte fetches it once at
-  // startup via appInfo() — see the moss-assets dispatch brief), so its
-  // presence also gates whether the pocket controls render at all: outside
-  // Moss (hc-spin dev, the e2e harness) there is nowhere to add a WAL to.
-  const weave = getContext<{ dnaHash?: DnaHash; addToPocket?: (wal: WAL) => void } | undefined>(
-    weaveContext,
-  );
+  // Pocket controls need two things, and both are checked: a Moss host to put
+  // a WAL into (`inMoss`), and the DNA hash every WAL's `hrl[0]` is built
+  // from. They used to be gated on `dnaHash` alone, on the assumption that it
+  // was only ever fetched inside Moss — no longer true now that the About
+  // dialog shows it on every boot, so outside Moss (hc-spin dev, the e2e
+  // harness) that gate would have rendered buttons with nowhere to add to.
+  const weave = getContext<
+    { dnaHash?: DnaHash; inMoss?: boolean; addToPocket?: (wal: WAL) => void } | undefined
+  >(weaveContext);
 
   // The same document, addable to the pocket as two different WALs — see
   // notebooks/ui/src/elements/markdown-note.ts for the pattern this mirrors.
@@ -46,7 +48,7 @@
   // other link in this app targets and what `get_document`/`getAssetInfo`
   // expect.
   function addToPocket(context: WAL['context']) {
-    if (!weave?.dnaHash || !weave.addToPocket) return;
+    if (!weave?.inMoss || !weave.dnaHash || !weave.addToPocket) return;
     weave.addToPocket({ hrl: [weave.dnaHash, doc.original], context });
   }
 
@@ -95,7 +97,7 @@
     <div class="actions">
       <button onclick={onAmend}>Amend</button>
       <button onclick={onTrash}>Trash</button>
-      {#if weave?.dnaHash}
+      {#if weave?.inMoss && weave?.dnaHash}
         <button onclick={() => addToPocket({})}>Add to pocket</button>
         <button onclick={() => addToPocket({ view: 'rendered' })}>Add rendered view to pocket</button>
       {/if}

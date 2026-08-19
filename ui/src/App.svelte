@@ -1,6 +1,13 @@
 <script lang="ts">
   import { onDestroy, onMount, setContext } from 'svelte';
-  import { AppWebsocket, CellType, encodeHashToBase64, type AppClient, type DnaHash } from '@holochain/client';
+  import {
+    AppWebsocket,
+    CellType,
+    encodeHashToBase64,
+    type AgentPubKey,
+    type AppClient,
+    type DnaHash,
+  } from '@holochain/client';
   import { WeaveClient, initializeHotReload, isWeaveContext, type WAL } from '@theweave/api';
   import { FileStorageClient } from '@holochain-open-dev/file-storage';
   import { ArkClient, ROLE_NAME } from './ark-client';
@@ -12,6 +19,7 @@
   import { SearchStore } from './stores/search.svelte';
   import { SignalStore } from './stores/signals.svelte';
   import { reconcile } from './reconcile';
+  import { listen } from './lib/listen';
   import { trashEntries, type TrashEntry } from './stores/orphans';
   import { folderPathLabel } from './tree/paths';
   import type { SearchHit } from './search/index';
@@ -25,6 +33,7 @@
   import OrphanBin from './lib/OrphanBin.svelte';
   import TrashView from './lib/TrashView.svelte';
   import ImportPanel from './lib/ImportPanel.svelte';
+  import AboutDialog from './lib/AboutDialog.svelte';
   import AssetView from './lib/AssetView.svelte';
 
   let ark: ArkClient | undefined = $state();
@@ -46,6 +55,7 @@
   let docHighlight = $state<string[]>([]);
   let editing: 'create' | 'amend' | null = $state(null);
   let importing = $state(false);
+  let aboutOpen = $state(false);
   // Moss asset-rendering path (see onMount): a single document, read-only,
   // with none of the tree/store/search/signals apparatus ever built. `null`
   // means the document did not resolve (trashed, or not yet synced to this
@@ -53,9 +63,13 @@
   let isAssetView = $state(false);
   let assetDoc: DocumentSummary | null = $state(null);
   // The ark cell's DNA hash, fetched once at startup — see the "Add to
-  // pocket" controls in DocumentView, which need it for every WAL's `hrl[0]`.
-  // Only ever set inside Moss; pocket controls are gated on its presence.
+  // pocket" controls in DocumentView, which need it for every WAL's `hrl[0]`,
+  // and the About dialog, which shows it because it is what people quote in a
+  // bug report. Pocket controls are still gated on Moss being present, but the
+  // hash itself is read everywhere the app boots normally.
   let dnaHash: DnaHash | undefined = $state();
+  /** This agent's own key — the other half of what a bug report needs. */
+  let agentKey: AgentPubKey | undefined = $state();
 
   setContext(clientContext, { get ark() { return ark; } });
   setContext(storeContext, { get store() { return store; } });
@@ -71,6 +85,13 @@
     },
     get dnaHash() {
       return dnaHash;
+    },
+    // Whether there is a Moss host at all. Separate from `dnaHash`, which is
+    // now read on every boot (the About dialog shows it) and so no longer
+    // stands in for "we are inside Moss" — a pocket button rendered outside
+    // Moss would be a control with nowhere to put anything.
+    get inMoss() {
+      return !!weaveClient;
     },
     addToPocket(wal: WAL) {
       void weaveClient?.assets.assetToPocket(wal);
@@ -136,11 +157,19 @@
 
       ark = new ArkClient(client);
       files = new FileStorageClient(client, 'ark');
-      if (weaveClient) {
-        // Fetched once here, not per "Add to pocket" click — see DocumentView.
+      agentKey = client.myPubKey;
+      // Fetched once here, not per "Add to pocket" click — see DocumentView.
+      // No longer gated on Moss: the About dialog shows this hash outside Moss
+      // too, and appInfo is one cheap call on a path that is already awaiting
+      // the whole corpus.
+      try {
         const info = await client.appInfo();
         const cell = info?.cell_info[ROLE_NAME]?.find((c) => c.type === CellType.Provisioned);
         if (cell?.type === CellType.Provisioned) dnaHash = cell.value.cell_id[0];
+      } catch (e) {
+        // A missing DNA hash costs an About line and the pocket controls; it
+        // must not stop the archive from loading.
+        console.warn('appInfo failed; DNA hash unavailable', e);
       }
       tree = new TreeStore(ark);
       await tree.load();
@@ -244,18 +273,20 @@
     importing = false;
   }
 
-  // Toggled from the toolbar. Opening also backs out of any open editor/doc
-  // view; closing is left to the user (see onImportDone below) rather than
-  // happening automatically after a run, so the completed summary — created,
-  // skipped, attached, any failures — actually stays on screen to be read.
+  // Opened from the About dialog, closed from the toolbar button that appears
+  // while it is open. Opening also backs out of any open editor/doc view;
+  // closing is left to the user (see onImportDone below) rather than happening
+  // automatically after a run, so the completed summary — created, skipped,
+  // attached, any failures — actually stays on screen to be read.
+  function openImport() {
+    importing = true;
+    editing = null;
+    selectedDoc = null;
+  }
+
   function toggleImport() {
-    if (importing) {
-      importing = false;
-    } else {
-      importing = true;
-      editing = null;
-      selectedDoc = null;
-    }
+    if (importing) importing = false;
+    else openImport();
   }
 
   // ImportPanel has already reloaded the document store and created any new
@@ -397,8 +428,20 @@
          would be a few words per line. -->
     <div class="header">
       <div class="toolbar">
+        <!-- The archive box is the app's identity and its only door to
+             version info, import and export. Import used to have its own
+             toolbar button; two entry points to the same panel is one more
+             than there is reason for. -->
+        <sl-icon-button
+          class="about"
+          name="archive"
+          label="About ark"
+          use:listen={{ click: () => (aboutOpen = true) }}
+        ></sl-icon-button>
         <button class="new-doc" onclick={newDoc}>New document</button>
-        <button class="import" onclick={toggleImport}>{importing ? 'Close import' : 'Import'}</button>
+        {#if importing}
+          <button class="import" onclick={toggleImport}>Close import</button>
+        {/if}
       </div>
       {#if search}
         <!-- `search?.highlightTerms()` below is optional only because the
@@ -514,6 +557,21 @@
         {/if}
       </div>
     </sl-split-panel>
+
+    <!-- Rendered here rather than at the top level because it needs the
+         stores: the corpus it exports and the tree it lays out. -->
+    {#if files}
+      <AboutDialog
+        bind:open={aboutOpen}
+        {ark}
+        {files}
+        {store}
+        {tree}
+        {dnaHash}
+        {agentKey}
+        onImport={openImport}
+      />
+    {/if}
   {/if}
 </main>
 

@@ -19,6 +19,17 @@ import type { DocumentSummary, DocumentVersion, Folder, FolderFiling, GetAllOutp
 /** Minimal shape `ArkClient`/`SignalStore`/`App.svelte` actually use. */
 export interface StubAppClient {
   myPubKey: AgentPubKey;
+  /**
+   * Just enough of `AppClient.appInfo()` for the two callers that read it:
+   * the "Add to pocket" WALs and the About dialog, both of which want the
+   * provisioned `ark` cell's DNA hash. Not a zome call, so it never lands in
+   * `calls`.
+   */
+  appInfo(): Promise<{
+    agent_pub_key: AgentPubKey;
+    installed_app_id: string;
+    cell_info: Record<string, { type: 'provisioned'; value: { cell_id: [Uint8Array, AgentPubKey] } }[]>;
+  }>;
   callZome(request: { role_name: string; zome_name: string; fn_name: string; payload: unknown }): Promise<unknown>;
   on(event: string, cb: (signal: unknown) => void): () => void;
   /**
@@ -67,6 +78,8 @@ interface DocRecord {
 
 export function createStubClient(): StubAppClient {
   const myPubKey = nextHash();
+  /** Stands in for the ark cell's DNA hash — see appInfo below. */
+  const dnaHash = nextHash();
 
   const documents = new Map<string, DocRecord>();
   /** Creation order, mirroring the AllDocuments anchor's link order. */
@@ -312,6 +325,15 @@ export function createStubClient(): StubAppClient {
   return {
     myPubKey,
     calls,
+    async appInfo() {
+      return {
+        agent_pub_key: myPubKey,
+        installed_app_id: 'ark',
+        cell_info: {
+          ark: [{ type: 'provisioned' as const, value: { cell_id: [dnaHash, myPubKey] as [Uint8Array, AgentPubKey] } }],
+        },
+      };
+    },
     async callZome(request) {
       calls.push(request.fn_name);
       const handler = handlers[request.fn_name];
