@@ -19,7 +19,7 @@
     onSelect: (id: string) => void;
     onRename: (id: string, name: string) => void;
     onDelete: (id: string) => void;
-    onAddChild: (parent: string) => void;
+    onAddChild: (parent: string, name: string) => void;
   } = $props();
 
   let children = $derived(folders.filter((f) => f.parent === folder.id));
@@ -29,6 +29,18 @@
   // when another agent renames the folder. The rename button seeds it instead,
   // so it is always the current name at the moment editing starts.
   let draft = $state('');
+
+  // Same inline pattern as rename above, not window.prompt: Electron's
+  // renderer overrides prompt() to throw rather than show a dialog, which
+  // made the old "+" a silent no-op (see FolderTree.svelte for detail).
+  let addingChild = $state(false);
+  let childDraft = $state('');
+
+  function confirmAddChild() {
+    const name = childDraft.trim();
+    addingChild = false;
+    if (name) onAddChild(folder.id, name);
+  }
 </script>
 
 <li>
@@ -47,12 +59,25 @@
         <span class="count">{counts[folder.id] ?? 0}</span>
       </button>
       <button title="Rename" onclick={() => { draft = folder.name; renaming = true; }}>✎</button>
-      <button title="New sub-folder" onclick={() => onAddChild(folder.id)}>+</button>
+      <button title="New sub-folder" onclick={() => { childDraft = ''; addingChild = true; }}>+</button>
       <button title="Delete" onclick={() => onDelete(folder.id)}>🗑</button>
     {/if}
   </div>
-  {#if children.length}
+  {#if children.length || addingChild}
     <ul>
+      {#if addingChild}
+        <li>
+          <input
+            class="add-input"
+            bind:value={childDraft}
+            placeholder="New sub-folder name"
+            onkeydown={(e) => {
+              if (e.key === 'Enter') confirmAddChild();
+              if (e.key === 'Escape') addingChild = false;
+            }}
+          />
+        </li>
+      {/if}
       {#each children as child (child.id)}
         <FolderNode
           folder={child} {folders} {selected} {counts}

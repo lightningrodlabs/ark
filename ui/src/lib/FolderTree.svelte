@@ -23,9 +23,22 @@
 
   let roots = $derived(tree.live.filter((f) => !f.parent || !tree.live.some((p) => p.id === f.parent)));
 
-  async function addFolder(parent: string | null) {
-    const name = prompt(parent ? 'Name of the new sub-folder' : 'Name of the new folder');
-    if (name) await tree.addFolder(name, parent);
+  // Electron does not implement window.prompt (it returns null unconditionally),
+  // so a modal prompt here is a silent no-op in Moss. This inline row is the
+  // same pattern FolderNode.svelte already uses for renaming: Enter confirms,
+  // Escape cancels, no dialog involved.
+  let addingRoot = $state(false);
+  let rootDraft = $state('');
+
+  function startAddRoot() {
+    addingRoot = true;
+    rootDraft = '';
+  }
+
+  async function confirmAddRoot() {
+    const name = rootDraft.trim();
+    addingRoot = false;
+    if (name) await tree.addFolder(name, null);
   }
 
   async function deleteFolder(id: string) {
@@ -74,7 +87,19 @@
 <nav>
   <div class="head">
     <strong>Folders</strong>
-    <button onclick={() => addFolder(null)}>+</button>
+    {#if addingRoot}
+      <input
+        class="add-input"
+        bind:value={rootDraft}
+        placeholder="New folder name"
+        onkeydown={(e) => {
+          if (e.key === 'Enter') confirmAddRoot();
+          if (e.key === 'Escape') addingRoot = false;
+        }}
+      />
+    {:else}
+      <button onclick={startAddRoot}>+</button>
+    {/if}
   </div>
   <ul>
     <li>
@@ -89,7 +114,7 @@
         onSelect={(id) => onSelect(id)}
         onRename={(id, name) => tree.renameFolder(id, name)}
         onDelete={deleteFolder}
-        onAddChild={(parent) => addFolder(parent)}
+        onAddChild={(parent, name) => tree.addFolder(name, parent)}
       />
     {/each}
   </ul>
