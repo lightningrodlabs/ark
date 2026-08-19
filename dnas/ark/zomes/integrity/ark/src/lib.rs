@@ -41,7 +41,7 @@ pub fn validate_agent_joining(
 #[hdk_extern]
 pub fn validate(op: Op) -> ExternResult<ValidateCallbackResult> {
     match op.flattened::<EntryTypes, LinkTypes>()? {
-        FlatOp::CreateEntry(store_entry) => match store_entry {
+        FlatOp::StoreEntry(store_entry) => match store_entry {
             OpEntry::CreateEntry { app_entry, action } => match app_entry {
                 EntryTypes::Document(d) => validate_create_document(action.into(), d),
                 EntryTypes::FolderTree(t) => validate_create_folder_tree(action.into(), t),

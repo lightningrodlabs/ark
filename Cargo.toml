@@ -9,8 +9,8 @@ members = ["crates/*", "dnas/*/zomes/coordinator/*", "dnas/*/zomes/integrity/*"]
 resolver = "2"
 
 [workspace.dependencies]
-hdi = { version = "0.8.0" }
-hdk = { version = "0.7.0" }
+hdi = { version = "0.7.0" }
+hdk = { version = "0.6.0" }
 holochain_serialized_bytes = "0.0.57"
 serde = "1"
 
