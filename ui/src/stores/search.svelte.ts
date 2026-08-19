@@ -1,3 +1,4 @@
+import type { ActionHash } from '@holochain/client';
 import { ArkIndex, type SearchFilters, type SearchHit } from '../search/index';
 import type { DocumentStore } from './documents.svelte';
 import type { DocumentSummary, Folder } from '../types';
@@ -27,6 +28,12 @@ export class SearchStore {
   /** Re-index one document. Keeps callers out of `index` directly. */
   upsert(doc: DocumentSummary): void {
     this.index.upsert(doc);
+  }
+
+  /** Index an attachment's text under its parent document. Keeps callers out
+   * of `index` directly. */
+  setAttachmentText(original: ActionHash, name: string, text: string): void {
+    this.index.setAttachmentText(original, name, text);
   }
 
   run(folderId: string | null, folders: Folder[]): SearchHit[] {

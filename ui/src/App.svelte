@@ -2,6 +2,7 @@
   import { onMount, setContext } from 'svelte';
   import { AppWebsocket, encodeHashToBase64, type AppClient } from '@holochain/client';
   import { WeaveClient, initializeHotReload, isWeaveContext } from '@theweave/api';
+  import { FileStorageClient } from '@holochain-open-dev/file-storage';
   import { ArkClient } from './ark-client';
   import { clientContext, storeContext } from './contexts';
   import { appletServices } from './we';
@@ -18,6 +19,7 @@
   import SearchResults from './lib/SearchResults.svelte';
 
   let ark: ArkClient | undefined = $state();
+  let files: FileStorageClient | undefined = $state();
   let error: string | undefined = $state();
   let tree: TreeStore | undefined = $state();
   let store: DocumentStore | undefined = $state();
@@ -45,6 +47,7 @@
         client = await AppWebsocket.connect({ defaultTimeout: 240000 });
       }
       ark = new ArkClient(client);
+      files = new FileStorageClient(client, 'ark');
       tree = new TreeStore(ark);
       await tree.load();
       store = new DocumentStore(ark);
@@ -187,8 +190,15 @@
           onDone={onEditorDone}
           onCancel={() => (editing = null)}
         />
-      {:else if selectedDoc}
-        <DocumentView doc={selectedDoc} {ark} onAmend={amendDoc} onTrash={trashDoc} />
+      {:else if selectedDoc && files && search}
+        <DocumentView
+          doc={selectedDoc}
+          {ark}
+          {files}
+          {search}
+          onAmend={amendDoc}
+          onTrash={trashDoc}
+        />
       {:else}
         <p class="hint">Select a document.</p>
       {/if}

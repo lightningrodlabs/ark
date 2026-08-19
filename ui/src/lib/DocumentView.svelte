@@ -1,18 +1,25 @@
 <script lang="ts">
   import { encodeHashToBase64 } from '@holochain/client';
+  import type { FileStorageClient } from '@holochain-open-dev/file-storage';
   import type { ArkClient } from '../ark-client';
+  import type { SearchStore } from '../stores/search.svelte';
   import type { DocumentSummary, DocumentVersion } from '../types';
   import { renderMarkdown } from '../render';
   import VersionHistory from './VersionHistory.svelte';
+  import Attachments from './Attachments.svelte';
 
   let {
     doc,
     ark,
+    files,
+    search,
     onAmend,
     onTrash,
   }: {
     doc: DocumentSummary;
     ark: ArkClient;
+    files: FileStorageClient;
+    search: SearchStore;
     onAmend: () => void;
     onTrash: () => void;
   } = $props();
@@ -54,6 +61,12 @@
   {#if versions.length > 1}
     <VersionHistory {versions} currentAction={encodeHashToBase64(doc.latest)} />
   {/if}
+  <Attachments
+    {ark}
+    {files}
+    {doc}
+    onIndexed={(name, text) => search.setAttachmentText(doc.original, name, text)}
+  />
 </article>
 
 <style>
