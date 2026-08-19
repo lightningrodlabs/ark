@@ -12,6 +12,10 @@ import { liveFolders, mergeHeads, sameFolders } from '../tree/merge';
 export class TreeStore {
   folders: Folder[] = $state([]);
   loading = $state(false);
+  /** Root LINKS `tree_roots()` found, from the last `load()`. */
+  rootCount = $state(0);
+  /** How many of those roots' tips actually resolved, from the last `load()`. */
+  headCount = $state(0);
   /**
    * Set by the app once the signal store exists (constructed after this
    * store, so it cannot be a constructor dependency). Called with the write's
@@ -26,6 +30,24 @@ export class TreeStore {
   }
 
   /**
+   * True when at least one root LINK has arrived without its `FolderTree`
+   * entry — i.e. `rootCount > headCount`. Root links and entries gossip
+   * independently (see `folder.rs`'s `get_folder_tree`), so this is the exact
+   * signal that the tree exists and simply has not arrived on this device
+   * yet, as opposed to `rootCount === 0`, which means no folder was ever
+   * created. A caller must not infer this from `folders` being empty alone —
+   * that is true in both cases.
+   *
+   * Also covers a root that forked into two writers before either had synced
+   * the other (`rootCount` 2) where only one side's tip has resolved so far
+   * (`headCount` 1): still a partial arrival, not a resolved tree with fewer
+   * folders than it should have.
+   */
+  get structurePending(): boolean {
+    return this.rootCount > this.headCount;
+  }
+
+  /**
    * Returns whether the merged tree actually differs from what is held.
    *
    * Like DocumentStore.load, this assigns only on a real change: `folders` is
@@ -36,7 +58,10 @@ export class TreeStore {
   async load(): Promise<boolean> {
     this.loading = true;
     try {
-      const folders = mergeHeads(await this.ark.getFolderTree());
+      const snapshot = await this.ark.getFolderTree();
+      this.rootCount = snapshot.root_count;
+      this.headCount = snapshot.heads.length;
+      const folders = mergeHeads(snapshot.heads);
       if (sameFolders(this.folders, folders)) return false;
       this.folders = folders;
       return true;

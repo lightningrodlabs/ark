@@ -8,7 +8,7 @@ import type {
   FolderFiling,
   GetAllOutput,
   Meta,
-  TreeHead,
+  TreeSnapshot,
 } from './types';
 
 export const ROLE_NAME = 'ark';
@@ -84,7 +84,7 @@ export class ArkClient {
     return this.call('get_filings', folderIds);
   }
 
-  getFolderTree(): Promise<TreeHead[]> {
+  getFolderTree(): Promise<TreeSnapshot> {
     return this.call('get_folder_tree', null);
   }
 

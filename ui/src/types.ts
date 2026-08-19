@@ -16,6 +16,19 @@ export interface TreeHead {
   folders: Folder[];
 }
 
+/**
+ * `get_folder_tree`'s full return. `root_count` is the number of root LINKS
+ * `tree_roots()` found on the DNA side; `heads` is however many of those
+ * roots' `FolderTree` entries actually resolved locally. The two gossip
+ * independently, so `root_count > heads.length` is the exact signal that the
+ * tree exists somewhere and simply has not arrived on this device yet — as
+ * opposed to `root_count === 0`, which means no folder was ever created.
+ */
+export interface TreeSnapshot {
+  root_count: number;
+  heads: TreeHead[];
+}
+
 export interface DocumentSummary {
   original: ActionHash;
   latest: ActionHash;
