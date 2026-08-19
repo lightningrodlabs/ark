@@ -22,6 +22,8 @@ export interface PlannedDoc {
    * `committee:` key ever produces — is a root folder, exactly as before.
    * ark's own export writes the full path as `folder:`, which is what lets a
    * nested tree survive a round trip instead of being flattened.
+   *
+   * Empty means filed nowhere — the document lands in the Unfiled bin.
    */
   folderPath: string;
   import_id: string;
@@ -35,8 +37,6 @@ export interface ImportPlan {
   /** Folder PATHS that do not exist yet; runImport creates each segment. */
   newFolders: string[];
 }
-
-const UNFILED = 'Unfiled';
 
 /**
  * Every live folder by its full path from the root. Path rather than bare
@@ -107,8 +107,14 @@ export function planImport(
     // `folder` is what ark's own export writes (a full path); `committee` is
     // what the Drupal export carries (one root folder). Either way this is a
     // path, and one with no separator is a root folder.
-    const path = meta.folder || meta.committee || UNFILED;
-    if (!resolvePath(byPath, path) && !newFolders.includes(path)) newFolders.push(path);
+    //
+    // Neither key means the document is filed nowhere, and it stays nowhere —
+    // it belongs in the Unfiled bin, not in a folder literally named "Unfiled".
+    // Export omits `folder:` for exactly these documents, so inventing a folder
+    // here would mean a round trip through export and back silently files every
+    // unfiled document.
+    const path = meta.folder || meta.committee || '';
+    if (path && !resolvePath(byPath, path) && !newFolders.includes(path)) newFolders.push(path);
 
     create.push({
       name: file.name,
@@ -244,7 +250,9 @@ export async function runImport(
         date: planned.date,
         import_id: planned.import_id,
       },
-      folder_id: resolvePath(byPath, planned.folderPath) ?? null,
+      folder_id: planned.folderPath
+        ? (resolvePath(byPath, planned.folderPath) ?? null)
+        : null,
     });
     created++;
 

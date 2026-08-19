@@ -40,6 +40,19 @@ describe('planImport', () => {
     expect(plan.create[0].body.trim()).toEqual('Body for 1802.');
   });
 
+  it('leaves a document with no folder or committee filed nowhere', () => {
+    // ark's export omits `folder:` for unfiled documents, so a default folder
+    // name here would file every unfiled document on a round trip through
+    // export and back.
+    const plan = planImport(
+      [file('loose.md', '---\ntitle: Loose note\ndate: 2019-04-04\n---\n\nBody.\n')],
+      [],
+      folders,
+    );
+    expect(plan.create[0].folderPath).toEqual('');
+    expect(plan.newFolders).toEqual([]);
+  });
+
   it('lists folders that do not exist yet', () => {
     const plan = planImport([minutes(1, 'Community Life', '2026-01-01')], [], folders);
     expect(plan.newFolders).toEqual(['Community Life']);

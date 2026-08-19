@@ -251,8 +251,11 @@ describe('buildArchive round trip', () => {
     expect(versionsOf).toHaveBeenCalledTimes(1);
 
     // The unfiled document comes back unfiled, not invented into a folder.
+    // Export omits `folder:` for it, so an import that defaulted to a folder
+    // name here would quietly file every unfiled document on a round trip.
     const unfiled = plan.create.find((p) => p.title === 'Unsorted note')!;
-    expect(unfiled.folderPath).toEqual('Unfiled');
+    expect(unfiled.folderPath).toEqual('');
+    expect(plan.newFolders).not.toContain('Unfiled');
 
     // The attachment attaches to the document it was written beside.
     const matched = matchAttachments(plan.create, candidates);
