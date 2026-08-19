@@ -64,17 +64,24 @@ describe('amendments', () => {
       const original = await call<ActionHash>(alice, 'create_document', doc('Minutes', 'v1'));
       await dhtSync([alice, bob], arkCell(alice).cell_id[0]);
 
-      await Promise.all([
-        call(alice, 'amend_document', { original, body: 'alice a', meta: {} }),
-        call(bob, 'amend_document', { original, body: 'bob a', meta: {} }),
-      ]);
-      await dhtSync([alice, bob], arkCell(alice).cell_id[0]);
+      // BOTH branches are two deep, deliberately. With only one deep branch the
+      // test is a coin flip: a greedy walk loses the deep branch's second edit
+      // only when the OTHER branch happens to win the first fork. Making both
+      // branches deep means a greedy walk drops an edit whichever side wins.
+      //
+      // Each agent amends twice before any sync, so each builds on its own view
+      // of the tip. If gossip happens to deliver one agent's edits to the other
+      // first, the chain is linear and every body is present anyway — the test
+      // weakens to trivially true, and never fails spuriously.
+      await call(alice, 'amend_document', { original, body: 'alice a', meta: {} });
       await call(alice, 'amend_document', { original, body: 'alice b', meta: {} });
+      await call(bob, 'amend_document', { original, body: 'bob a', meta: {} });
+      await call(bob, 'amend_document', { original, body: 'bob b', meta: {} });
       await dhtSync([alice, bob], arkCell(alice).cell_id[0]);
 
       const versions = await call<DocumentVersion[]>(bob, 'get_document_versions', original);
       const bodies = versions.map((v) => v.body);
-      for (const body of ['v1', 'alice a', 'bob a', 'alice b']) {
+      for (const body of ['v1', 'alice a', 'alice b', 'bob a', 'bob b']) {
         expect(bodies, `missing ${body}`).toContain(body);
       }
 
