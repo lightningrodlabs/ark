@@ -60,6 +60,21 @@ export function createStubClient(): StubAppClient {
   const attachments = new Map<string, Set<string>>();
   const fileHashByKey = new Map<string, EntryHash>();
 
+  // file_storage zome stand-in (see ../../../file-storage, branch main-0.7,
+  // dnas/file_storage_provider). Content-addressing is not reproduced —
+  // like the rest of this stub, chunks and metadata just get a fresh
+  // `nextHash()` — but the shapes match what FileStorageClient sends and
+  // expects back.
+  const fileChunks = new Map<string, Uint8Array>();
+  interface StoredFileMetadata {
+    name: string;
+    last_modified: number;
+    size: number;
+    file_type: string;
+    chunks_hashes: EntryHash[];
+  }
+  const fileMetadata = new Map<string, StoredFileMetadata>();
+
   let folders: Folder[] = [];
   let treeExists = false;
   let treeAction: ActionHash = nextHash();
@@ -210,6 +225,49 @@ export function createStubClient(): StubAppClient {
     notify_peers: (): null => null,
 
     whoami: (): AgentPubKey => myPubKey,
+
+    // FileStorageClient._createChunk sends the raw chunk bytes as the whole
+    // payload (Uint8Array), matching how the Rust side's `FileChunk(SerializedBytes)`
+    // tuple struct collapses on the wire — there is no wrapper object here.
+    create_file_chunk: (bytes: Uint8Array): EntryHash => {
+      const hash = nextHash();
+      fileChunks.set(key(hash), new Uint8Array(bytes));
+      return hash;
+    },
+
+    // FileStorageClient.uploadFile sends { name, size, file_type, last_modified, chunks_hashes }.
+    create_file_metadata: (input: {
+      name: string;
+      size: number;
+      file_type: string;
+      last_modified: number;
+      chunks_hashes: EntryHash[];
+    }): EntryHash => {
+      const hash = nextHash();
+      fileMetadata.set(key(hash), {
+        name: input.name,
+        last_modified: input.last_modified,
+        size: input.size,
+        file_type: input.file_type,
+        chunks_hashes: input.chunks_hashes,
+      });
+      return hash;
+    },
+
+    // FileStorageClient.getFileMetadata/fetchChunk both send { input, local },
+    // mirroring the Rust ZomeFnInput<T> wrapper's `local` get-strategy flag —
+    // irrelevant here since there is no network to fall back to.
+    get_file_metadata: ({ input }: { input: EntryHash; local?: boolean }): StoredFileMetadata => {
+      const meta = fileMetadata.get(key(input));
+      if (!meta) throw new Error('get_file_metadata: no such file');
+      return meta;
+    },
+
+    get_file_chunk: ({ input }: { input: EntryHash; local?: boolean }): Uint8Array => {
+      const bytes = fileChunks.get(key(input));
+      if (!bytes) throw new Error('get_file_chunk: no such chunk');
+      return bytes;
+    },
   };
 
   return {
