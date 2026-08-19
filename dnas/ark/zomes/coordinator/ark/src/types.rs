@@ -66,3 +66,9 @@ pub struct FolderFiling {
     pub folder_id: String,
     pub documents: Vec<ActionHash>,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AttachInput {
+    pub original: ActionHash,
+    pub file_hash: EntryHash,
+}

@@ -22,3 +22,9 @@ path = "dnas/ark/zomes/integrity/ark"
 
 [workspace.dependencies.ark_pick]
 path = "crates/pick"
+
+[workspace.dependencies.file_storage]
+path = "dnas/ark/zomes/coordinator/file_storage"
+
+[workspace.dependencies.file_storage_integrity]
+path = "dnas/ark/zomes/integrity/file_storage"

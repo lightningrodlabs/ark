@@ -9,6 +9,10 @@ integrity:
       hash: ~
       path: "../../../target/wasm32-unknown-unknown/release/ark_integrity.wasm"
       dependencies: ~
+    - name: file_storage_integrity
+      hash: ~
+      path: "../../../target/wasm32-unknown-unknown/release/file_storage_integrity.wasm"
+      dependencies: ~
 coordinator:
   zomes:
     - name: ark
@@ -16,3 +20,8 @@ coordinator:
       path: "../../../target/wasm32-unknown-unknown/release/ark.wasm"
       dependencies:
         - name: ark_integrity
+    - name: file_storage
+      hash: ~
+      path: "../../../target/wasm32-unknown-unknown/release/file_storage.wasm"
+      dependencies:
+        - name: file_storage_integrity

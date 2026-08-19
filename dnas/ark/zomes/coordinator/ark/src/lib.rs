@@ -1,5 +1,6 @@
 use hdk::prelude::*;
 
+pub mod attachment;
 pub mod document;
 pub mod folder;
 pub mod resolve;
