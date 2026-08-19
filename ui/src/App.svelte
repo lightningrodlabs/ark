@@ -21,6 +21,7 @@
   import SearchResults from './lib/SearchResults.svelte';
   import OrphanBin from './lib/OrphanBin.svelte';
   import TrashView from './lib/TrashView.svelte';
+  import ImportPanel from './lib/ImportPanel.svelte';
 
   let ark: ArkClient | undefined = $state();
   let files: FileStorageClient | undefined = $state();
@@ -35,6 +36,7 @@
   let selectedFolder: string | null = $state(null);
   let selectedDoc: DocumentSummary | null = $state(null);
   let editing: 'create' | 'amend' | null = $state(null);
+  let importing = $state(false);
 
   setContext(clientContext, { get ark() { return ark; } });
   setContext(storeContext, { get store() { return store; } });
@@ -141,6 +143,20 @@
 
   function newDoc() {
     editing = 'create';
+    importing = false;
+  }
+
+  function openImport() {
+    importing = true;
+    editing = null;
+    selectedDoc = null;
+  }
+
+  // ImportPanel has already reloaded the document store and created any new
+  // folders by the time onDone fires; only the search index needs rebuilding.
+  function onImportDone() {
+    search?.rebuild();
+    importing = false;
   }
 
   function amendDoc() {
@@ -239,7 +255,10 @@
         </div>
       </div>
       <div class="list-column">
-        <button class="new-doc" onclick={newDoc}>New document</button>
+        <div class="toolbar">
+          <button class="new-doc" onclick={newDoc}>New document</button>
+          <button class="import" onclick={openImport}>Import</button>
+        </div>
         {#if search}
           <SearchBar {search} resultCount={searchResults.length} {authors} />
         {/if}
@@ -262,7 +281,9 @@
           />
         {/if}
       </div>
-      {#if editing === 'create'}
+      {#if importing && ark && store}
+        <ImportPanel {ark} {tree} {store} onDone={onImportDone} />
+      {:else if editing === 'create'}
         <DocumentEditor
           {ark}
           {signals}
@@ -302,6 +323,7 @@
   .sidebar { display: flex; flex-direction: column; }
   .bins { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.5rem; }
   .list-column { display: flex; flex-direction: column; }
-  .new-doc { margin: 0.5rem; }
+  .toolbar { display: flex; gap: 0.5rem; margin: 0.5rem; }
+  .new-doc, .import { margin: 0; }
   .hint { padding: 1rem; opacity: 0.6; }
 </style>
