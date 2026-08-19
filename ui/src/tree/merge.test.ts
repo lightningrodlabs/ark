@@ -51,6 +51,44 @@ describe('mergeHeads', () => {
     expect(liveFolders(merged)).toEqual([]);
   });
 
+  // Documents the merge behaviour that actually ships, rather than the
+  // per-folder merge the code structure suggests. `mergeHeads` resolves a
+  // winner per folder id, which reads as though renaming two different
+  // folders concurrently could each survive independently. But `TreeStore.save`
+  // (ui/src/stores/tree.svelte.ts) always writes the FULL folder list as one
+  // head, so every head is a complete snapshot of the tree at that moment —
+  // there is no way for a head to carry a rename to folder A without also
+  // carrying whatever it last knew about folder B. Per-id resolution then
+  // degenerates to whole-tree last-writer-wins: an older head can beat a
+  // newer one folder-by-id, but two heads can never each contribute a winning
+  // rename to a DIFFERENT folder, because the newer head's version of every
+  // folder wins every id, including ones it didn't touch.
+  //
+  // Fixing this for real needs each `Folder` to carry its own last-modified
+  // action so a head can prove which of its folders it actually touched —
+  // a schema change, out of scope for this fix wave. This test exists so the
+  // limitation is recorded as documented behaviour, not rediscovered as a
+  // surprise later.
+  it('resolves whole-tree, not per-folder: a concurrent rename of a different folder is lost', () => {
+    const base = [f('a', 'Alpha'), f('b', 'Beta')];
+    // Alice's head: she renamed 'a', and her head still carries Beta's OLD
+    // name because whole-tree snapshots always include every folder.
+    const aliceHead = head([1], 200, [f('a', 'Alpha renamed by Alice'), f('b', 'Beta')]);
+    // Bob's head, timestamped later: he renamed 'b', and his snapshot still
+    // carries Alpha's ORIGINAL name, from before Alice's edit ever reached him.
+    const bobHead = head([2], 300, [f('a', 'Alpha'), f('b', 'Beta renamed by Bob')]);
+
+    const merged = mergeHeads([aliceHead, bobHead]);
+
+    // Bob's head is newer, so it wins BOTH ids — including 'a', which Bob
+    // never touched. Alice's rename of 'a' is lost even though the two edits
+    // targeted different folders and neither peer overwrote the other's
+    // intent.
+    expect(merged.find((x) => x.id === 'a')!.name).toEqual('Alpha');
+    expect(merged.find((x) => x.id === 'b')!.name).toEqual('Beta renamed by Bob');
+    expect(base.map((x) => x.name)).toEqual(['Alpha', 'Beta']); // sanity: base unchanged
+  });
+
   it('sorts by order then name', () => {
     const h = head([1], 100, [
       { ...f('b', 'Beta'), order: 1 },
