@@ -20,8 +20,8 @@
     "cli-help": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"commonjs\"}' weave --help"
   },
   "devDependencies": {
-    "@holochain/hc-spin": "^0.700.0",
-    "@theweave/cli": "0.16.0-dev.5",
+    "@holochain/hc-spin": "^0.603.0",
+    "@theweave/cli": "^0.15.21",
     "concurrently": "^6.2.1",
     "rimraf": "^3.0.2"
   },
