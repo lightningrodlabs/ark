@@ -79,29 +79,58 @@ export function planImport(
   return { create, skipped, newFolders };
 }
 
+export interface AttachmentMatch {
+  byImportId: Map<string, File[]>;
+  /** Named in front matter but not attachable, with the reason. */
+  unmatched: { title: string; name: string; reason: 'not found' | 'ambiguous' }[];
+}
+
+const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+const baseOf = (p: string) => p.split('/').pop() ?? p;
+
 /**
  * Match each planned document's front-matter attachment names against the files
- * the user picked, by basename. The export lays attachments out beside the
- * markdown, so basename matching is enough and avoids depending on any
- * particular directory shape.
+ * the user picked.
+ *
+ * Prefers a file in the same directory as the document, because generic names
+ * recur across an export — several meetings can each ship an `agenda.pdf`. A
+ * global first-wins match would attach one meeting's agenda to every document
+ * that mentions the name, and a plausible wrong attachment is worse than a
+ * missing one: nobody goes looking for it. Where the name is genuinely
+ * ambiguous this reports rather than guesses.
  */
 export function matchAttachments(
   planned: PlannedDoc[],
   files: { name: string; file: File }[],
-): Map<string, File[]> {
-  const byBasename = new Map<string, File>();
+): AttachmentMatch {
+  const byBase = new Map<string, { dir: string; file: File }[]>();
   for (const f of files) {
-    const base = f.name.split('/').pop() ?? f.name;
-    if (!byBasename.has(base)) byBasename.set(base, f.file);
+    const base = baseOf(f.name);
+    byBase.set(base, [...(byBase.get(base) ?? []), { dir: dirOf(f.name), file: f.file }]);
   }
-  const out = new Map<string, File[]>();
+
+  const byImportId = new Map<string, File[]>();
+  const unmatched: AttachmentMatch['unmatched'] = [];
   for (const doc of planned) {
-    const matched = doc.attachments
-      .map((name) => byBasename.get(name.split('/').pop() ?? name))
-      .filter((f): f is File => f !== undefined);
-    if (matched.length) out.set(doc.import_id, matched);
+    const docDir = dirOf(doc.name);
+    const matched: File[] = [];
+    for (const wanted of doc.attachments) {
+      const candidates = byBase.get(baseOf(wanted)) ?? [];
+      const sameDir = candidates.filter((c) => c.dir === docDir);
+      const pick =
+        sameDir.length === 1 ? sameDir[0] : candidates.length === 1 ? candidates[0] : undefined;
+      if (pick) matched.push(pick.file);
+      else {
+        unmatched.push({
+          title: doc.title,
+          name: wanted,
+          reason: candidates.length === 0 ? 'not found' : 'ambiguous',
+        });
+      }
+    }
+    if (matched.length) byImportId.set(doc.import_id, matched);
   }
-  return out;
+  return { byImportId, unmatched };
 }
 
 export async function runImport(

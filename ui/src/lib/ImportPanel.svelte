@@ -7,6 +7,7 @@
     matchAttachments,
     planImport,
     runImport,
+    type AttachmentMatch,
     type ImportFile,
     type ImportPlan,
   } from '../import/importer';
@@ -27,7 +28,8 @@
 
   let mdFiles = $state<ImportFile[]>([]);
   // Non-markdown files picked alongside the minutes — attachment candidates,
-  // matched against each planned document's front matter by basename.
+  // matched against each planned document's front matter, preferring one in
+  // the same directory as the document.
   let candidates = $state<{ name: string; file: File }[]>([]);
   let plan = $state<ImportPlan | null>(null);
   let running = $state(false);
@@ -37,10 +39,12 @@
     skipped: number;
     attached: number;
     attachmentsFailed: string[];
+    unmatched: AttachmentMatch['unmatched'];
   } | null>(null);
 
-  let attachmentMatches = $derived(
-    plan ? matchAttachments(plan.create, candidates) : new Map<string, File[]>(),
+  const EMPTY_MATCH: AttachmentMatch = { byImportId: new Map(), unmatched: [] };
+  let attachmentMatch = $derived(
+    plan ? matchAttachments(plan.create, candidates) : EMPTY_MATCH,
   );
 
   async function choose(event: Event) {
@@ -48,7 +52,11 @@
     const picked = [...(input.files ?? [])];
     const md = picked.filter((f) => f.name.toLowerCase().endsWith('.md'));
     const rest = picked.filter((f) => !f.name.toLowerCase().endsWith('.md'));
-    mdFiles = await Promise.all(md.map(async (f) => ({ name: f.name, text: await f.text() })));
+    // The relative path (not just the basename) is what lets matchAttachments
+    // tell two same-named attachments in different meeting folders apart.
+    mdFiles = await Promise.all(
+      md.map(async (f) => ({ name: f.webkitRelativePath || f.name, text: await f.text() })),
+    );
     candidates = rest.map((f) => ({ name: f.webkitRelativePath || f.name, file: f }));
     plan = planImport(mdFiles, [...store.byOriginal.values()], tree.folders);
     summary = null;
@@ -61,7 +69,8 @@
     let created = 0;
     let attached = 0;
     const attachmentsFailed: string[] = [];
-    const attachments = attachmentMatches;
+    const attachments = attachmentMatch.byImportId;
+    const unmatched = attachmentMatch.unmatched;
     const skippedCount = plan.skipped.length;
     try {
       // Import in slices so a large corpus reports progress rather than hanging.
@@ -88,7 +97,7 @@
       // again without re-choosing — a stale plan re-run would re-create every
       // document just imported, in the same session, before import_id-based
       // dedup on the archive ever gets a chance to see them.
-      summary = { created, skipped: skippedCount, attached, attachmentsFailed };
+      summary = { created, skipped: skippedCount, attached, attachmentsFailed, unmatched };
       plan = null;
       mdFiles = [];
       candidates = [];
@@ -112,8 +121,20 @@
       <li><strong>{plan.create.length}</strong> new document(s)</li>
       <li><strong>{plan.skipped.length}</strong> already present, will be skipped</li>
       <li><strong>{plan.newFolders.length}</strong> folder(s) to create: {plan.newFolders.join(', ')}</li>
-      <li><strong>{attachmentMatches.size}</strong> document(s) with a matched attachment</li>
+      <li><strong>{attachmentMatch.byImportId.size}</strong> document(s) with a matched attachment</li>
     </ul>
+    {#if attachmentMatch && attachmentMatch.unmatched.length}
+      <details class="warn">
+        <summary>
+          {attachmentMatch.unmatched.length} attachment(s) referenced but not importable
+        </summary>
+        <ul>
+          {#each attachmentMatch.unmatched as u}
+            <li>{u.title} — {u.name} ({u.reason})</li>
+          {/each}
+        </ul>
+      </details>
+    {/if}
     <button onclick={go} disabled={running || plan.create.length === 0}>
       {running ? `Importing ${progress}/${plan.create.length}…` : 'Import'}
     </button>
@@ -133,10 +154,19 @@
         {/each}
       </ul>
     {/if}
+    {#if summary.unmatched.length > 0}
+      <p class="failed">{summary.unmatched.length} attachment(s) referenced but not imported:</p>
+      <ul class="failed-list">
+        {#each summary.unmatched as u}
+          <li>{u.title} — {u.name} ({u.reason})</li>
+        {/each}
+      </ul>
+    {/if}
   {/if}
 </section>
 
 <style>
   .summary, .result, .failed-list { list-style: none; padding: 0; }
   .failed { color: #b91c1c; font-weight: bold; }
+  .warn { color: #92400e; }
 </style>

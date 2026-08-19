@@ -10,16 +10,11 @@ const minutes = (node: number, committee: string, date: string) =>
     `---\ntitle: "${committee} Minutes: ${date}"\ncommittee: ${committee}\nmeeting_date: ${date}\ndrupal_node: ${node}\n---\n\nBody for ${node}.\n`,
   );
 
-const minutesWithAttachment = (
-  node: number,
-  committee: string,
-  date: string,
-  attachment: string,
-) =>
-  file(
-    `${date} ${committee}.md`,
-    `---\ntitle: "${committee} Minutes: ${date}"\ncommittee: ${committee}\nmeeting_date: ${date}\ndrupal_node: ${node}\nattachments:\n  - "${attachment}"\n---\n\nBody for ${node}.\n`,
-  );
+const minutesText = (node: number, committee: string, date: string, attachment: string) =>
+  `---\ntitle: "${committee} Minutes: ${date}"\ncommittee: ${committee}\nmeeting_date: ${date}\ndrupal_node: ${node}\nattachments:\n  - "${attachment}"\n---\n\nBody for ${node}.\n`;
+
+const minutesWithAttachment = (node: number, committee: string, date: string, attachment: string) =>
+  file(`${date} ${committee}.md`, minutesText(node, committee, date, attachment));
 
 const folders: Folder[] = [
   { id: 'fnl', name: 'Finance and Legal', parent: null, order: 0, deleted: false },
@@ -119,7 +114,8 @@ describe('matchAttachments', () => {
     );
     const budget = new File(['x'], 'budget.pdf');
     const matches = matchAttachments(plan.create, [{ name: 'budget.pdf', file: budget }]);
-    expect(matches.get(plan.create[0].import_id)).toEqual([budget]);
+    expect(matches.byImportId.get(plan.create[0].import_id)).toEqual([budget]);
+    expect(matches.unmatched).toEqual([]);
   });
 
   it('leaves a document unmatched when its named attachment was not among the picked files', () => {
@@ -129,10 +125,13 @@ describe('matchAttachments', () => {
       folders,
     );
     const matches = matchAttachments(plan.create, []);
-    expect(matches.has(plan.create[0].import_id)).toBe(false);
+    expect(matches.byImportId.has(plan.create[0].import_id)).toBe(false);
+    expect(matches.unmatched).toEqual([
+      { title: plan.create[0].title, name: 'roster.pdf', reason: 'not found' },
+    ]);
   });
 
-  it('matches by basename when the picked file carries a directory prefix', () => {
+  it('matches by basename when the picked file carries a directory prefix and only one candidate exists', () => {
     const plan = planImport(
       [minutesWithAttachment(3, 'Finance and Legal', '2026-01-03', 'roster.pdf')],
       [],
@@ -142,6 +141,61 @@ describe('matchAttachments', () => {
     const matches = matchAttachments(plan.create, [
       { name: 'finance-and-legal/roster.pdf', file: roster },
     ]);
-    expect(matches.get(plan.create[0].import_id)).toEqual([roster]);
+    expect(matches.byImportId.get(plan.create[0].import_id)).toEqual([roster]);
+  });
+
+  it('prefers the attachment in the same directory when the same name recurs across the export', () => {
+    const doc1 = file(
+      'ad-hoc/2003-01-01 Ad Hoc.md',
+      minutesText(101, 'Ad Hoc', '2003-01-01', 'agenda.pdf'),
+    );
+    const doc2 = file(
+      'finance-and-legal/2003-01-02 Finance and Legal.md',
+      minutesText(102, 'Finance and Legal', '2003-01-02', 'agenda.pdf'),
+    );
+    const plan = planImport([doc1, doc2], [], folders);
+    const agendaForAdHoc = new File(['1'], 'agenda.pdf');
+    const agendaForFinance = new File(['2'], 'agenda.pdf');
+    const matches = matchAttachments(plan.create, [
+      { name: 'ad-hoc/agenda.pdf', file: agendaForAdHoc },
+      { name: 'finance-and-legal/agenda.pdf', file: agendaForFinance },
+    ]);
+
+    const planned1 = plan.create.find((d) => d.import_id === 'drupal:101')!;
+    const planned2 = plan.create.find((d) => d.import_id === 'drupal:102')!;
+    expect(matches.byImportId.get(planned1.import_id)).toEqual([agendaForAdHoc]);
+    expect(matches.byImportId.get(planned2.import_id)).toEqual([agendaForFinance]);
+    expect(matches.unmatched).toEqual([]);
+  });
+
+  it('reports "not found" when the named attachment matches no picked file at all', () => {
+    const doc = file(
+      'ad-hoc/2003-02-01 Ad Hoc.md',
+      minutesText(103, 'Ad Hoc', '2003-02-01', 'missing.pdf'),
+    );
+    const plan = planImport([doc], [], folders);
+    const matches = matchAttachments(plan.create, []);
+    expect(matches.byImportId.has(plan.create[0].import_id)).toBe(false);
+    expect(matches.unmatched).toEqual([
+      { title: plan.create[0].title, name: 'missing.pdf', reason: 'not found' },
+    ]);
+  });
+
+  it('reports "ambiguous" when several files share a name and none is in the document\'s directory', () => {
+    const doc = file(
+      'membership/2003-03-01 Membership.md',
+      minutesText(104, 'Membership', '2003-03-01', 'agenda.pdf'),
+    );
+    const plan = planImport([doc], [], folders);
+    const agendaA = new File(['a'], 'agenda.pdf');
+    const agendaB = new File(['b'], 'agenda.pdf');
+    const matches = matchAttachments(plan.create, [
+      { name: 'ad-hoc/agenda.pdf', file: agendaA },
+      { name: 'finance-and-legal/agenda.pdf', file: agendaB },
+    ]);
+    expect(matches.byImportId.has(plan.create[0].import_id)).toBe(false);
+    expect(matches.unmatched).toEqual([
+      { title: plan.create[0].title, name: 'agenda.pdf', reason: 'ambiguous' },
+    ]);
   });
 });
