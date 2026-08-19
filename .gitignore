@@ -7,3 +7,4 @@ dist.zip
 *.webhapp
 .DS_Store
 .hc*
+ui/harness/__results__/

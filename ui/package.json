@@ -9,6 +9,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:perf": "vitest run src/search/perf.test.ts",
+    "test:e2e": "playwright test",
     "package": "rimraf dist && rimraf dist.zip && npm run build && cd dist && bestzip ../dist.zip *"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
     "uuid": "^10.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@sveltejs/vite-plugin-svelte": "^4.0.4",
     "@tsconfig/svelte": "^5.0.0",
     "@types/diff": "^5.2.0",

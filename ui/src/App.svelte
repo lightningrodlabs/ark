@@ -44,14 +44,22 @@
   onMount(async () => {
     try {
       let client: AppClient;
-      if (import.meta.env.DEV && !isWeaveContext()) {
-        await initializeHotReload().catch(() => {});
-      }
-      if (isWeaveContext()) {
+      // Test seam: the Playwright harness (ui/harness/) sets this before
+      // mounting so the real component tree runs against an in-memory stub
+      // instead of a conductor. Absent in production, where this branch never
+      // taken and the connection logic below is unchanged.
+      const testClient = (window as unknown as { __ARK_TEST_CLIENT__?: AppClient })
+        .__ARK_TEST_CLIENT__;
+      if (testClient) {
+        client = testClient;
+      } else if (isWeaveContext()) {
         weaveClient = await WeaveClient.connect(appletServices);
         if (weaveClient.renderInfo.type !== 'applet-view') throw new Error('Unsupported view');
         client = weaveClient.renderInfo.appletClient;
       } else {
+        if (import.meta.env.DEV) {
+          await initializeHotReload().catch(() => {});
+        }
         client = await AppWebsocket.connect({ defaultTimeout: 240000 });
       }
       ark = new ArkClient(client);
