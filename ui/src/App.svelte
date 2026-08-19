@@ -9,6 +9,7 @@
   import { TreeStore } from './stores/tree.svelte';
   import { DocumentStore, key } from './stores/documents.svelte';
   import { SearchStore } from './stores/search.svelte';
+  import { trashEntries, type TrashEntry } from './stores/orphans';
   import type { ActionHash } from '@holochain/client';
   import type { DocumentSummary } from './types';
   import FolderTree from './lib/FolderTree.svelte';
@@ -17,6 +18,8 @@
   import DocumentEditor from './lib/DocumentEditor.svelte';
   import SearchBar from './lib/SearchBar.svelte';
   import SearchResults from './lib/SearchResults.svelte';
+  import OrphanBin from './lib/OrphanBin.svelte';
+  import TrashView from './lib/TrashView.svelte';
 
   let ark: ArkClient | undefined = $state();
   let files: FileStorageClient | undefined = $state();
@@ -120,6 +123,32 @@
     selectedDoc = null;
   }
 
+  async function restoreDoc(original: ActionHash) {
+    if (!ark || !store) return;
+    await ark.restoreDocument(original);
+    await store.applySignal({ type: 'DocumentRestored', original });
+    search?.sync();
+  }
+
+  // Used both for the Unfiled bin (from = null) and each deleted-folder bin.
+  // Re-syncs the search index so a document moved out of a deleted folder
+  // stops being found under it.
+  async function refileDoc(original: ActionHash, from: string | null, to: string) {
+    if (!ark || !store) return;
+    await ark.moveDocument({ original, from, to });
+    await store.applySignal({ type: 'DocumentMoved', original, from, to });
+    search?.sync();
+  }
+
+  function openTrashed(entry: TrashEntry) {
+    selectedDoc = entry.doc;
+    editing = null;
+  }
+
+  let unfiledDocs = $derived(store ? store.unfiled() : []);
+  let deletedBins = $derived(store && tree ? store.inDeletedFolders(tree.folders) : []);
+  let trashList = $derived(store && tree ? trashEntries(store, tree.folders) : []);
+
   async function onEditorDone(original: ActionHash) {
     if (!store) return;
     await store.refreshDocument(original);
@@ -142,13 +171,36 @@
     <p>Loading documents… {loaded}</p>
   {:else}
     <div class="layout">
-      <FolderTree
-        {tree}
-        {ark}
-        selected={selectedFolder}
-        counts={store.counts(tree.live)}
-        onSelect={selectFolder}
-      />
+      <div class="sidebar">
+        <FolderTree
+          {tree}
+          {ark}
+          selected={selectedFolder}
+          counts={store.counts(tree.live)}
+          onSelect={selectFolder}
+        />
+        <div class="bins">
+          {#if unfiledDocs.length > 0}
+            <OrphanBin
+              title="Unfiled"
+              documents={unfiledDocs}
+              fromFolderId={null}
+              folders={tree.live}
+              onRefile={refileDoc}
+            />
+          {/if}
+          {#each deletedBins as bin (bin.folder.id)}
+            <OrphanBin
+              title={`Deleted folder: ${bin.folder.name}`}
+              documents={bin.documents}
+              fromFolderId={bin.folder.id}
+              folders={tree.live}
+              onRefile={refileDoc}
+            />
+          {/each}
+          <TrashView entries={trashList} onRestore={restoreDoc} onOpen={openTrashed} />
+        </div>
+      </div>
       <div class="list-column">
         <button class="new-doc" onclick={newDoc}>New document</button>
         {#if search}
@@ -208,6 +260,8 @@
 
 <style>
   .layout { display: flex; }
+  .sidebar { display: flex; flex-direction: column; }
+  .bins { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.5rem; }
   .list-column { display: flex; flex-direction: column; }
   .new-doc { margin: 0.5rem; }
   .hint { padding: 1rem; opacity: 0.6; }
