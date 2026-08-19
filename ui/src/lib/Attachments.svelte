@@ -11,11 +11,13 @@
     files,
     doc,
     onIndexed,
+    onUnindexed,
   }: {
     ark: ArkClient;
     files: FileStorageClient;
     doc: DocumentSummary;
     onIndexed: (name: string, text: string) => void;
+    onUnindexed: (name: string) => void;
   } = $props();
 
   let attached = $state<{ hash: EntryHash; name: string; type: string; size: number }[]>([]);
@@ -53,11 +55,16 @@
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
+    // Pin the document BEFORE the upload. Reading `doc.original` afterwards
+    // attaches the file to whatever document is selected when the upload
+    // finishes — and unlike a stale list, this writes a real DHT link every
+    // peer sees.
+    const original = doc.original;
     busy = true;
     try {
       const hash = await files.uploadFile(file);
-      await ark.attachFile(doc.original, hash);
-      await refresh(doc.original, generation);
+      await ark.attachFile(original, hash);
+      await refresh(original, generation);
     } finally {
       busy = false;
       input.value = '';
@@ -65,8 +72,14 @@
   }
 
   async function detach(hash: EntryHash) {
-    await ark.detachFile(doc.original, hash);
-    await refresh(doc.original, generation);
+    const original = doc.original;
+    const detached = attached.find((f) => f.hash === hash);
+    await ark.detachFile(original, hash);
+    // Drop its text from the index as well, or the file stays searchable under
+    // a document that no longer has it — a hit reading "in attachment
+    // budget.csv" pointing at an attachment that is gone.
+    if (detached) onUnindexed(detached.name);
+    await refresh(original, generation);
   }
 </script>
 
@@ -75,7 +88,12 @@
   <ul>
     {#each attached as file (encodeHashToBase64(file.hash))}
       <li>
-        <button onclick={async () => window.open(URL.createObjectURL(await files.downloadFile(file.hash)))}>
+        <button onclick={async () => {
+          const url = URL.createObjectURL(await files.downloadFile(file.hash));
+          window.open(url);
+          // The tab has the blob by now; holding the URL only leaks it.
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        }}>
           {file.name}
         </button>
         <span class="size">{Math.ceil(file.size / 1024)} KB</span>

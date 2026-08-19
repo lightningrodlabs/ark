@@ -90,6 +90,19 @@ export class ArkIndex {
     if (doc) this.upsert(doc);
   }
 
+  /** Forget one attachment's text, e.g. when it is detached from the document. */
+  removeAttachmentText(original: ActionHash, name: string): void {
+    const id = this.keyOf(original);
+    const list = this.attachments.get(id);
+    if (!list) return;
+    const remaining = list.filter((a) => a.name !== name);
+    if (remaining.length === list.length) return;
+    if (remaining.length === 0) this.attachments.delete(id);
+    else this.attachments.set(id, remaining);
+    const doc = this.docs.get(id);
+    if (doc) this.upsert(doc);
+  }
+
   setFilings(filings: Map<string, string | null>): void {
     this.filings = filings;
   }

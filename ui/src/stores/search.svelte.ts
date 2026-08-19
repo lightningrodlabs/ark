@@ -36,6 +36,12 @@ export class SearchStore {
     this.index.setAttachmentText(original, name, text);
   }
 
+  /** Forget an attachment's text, e.g. when it is detached. Keeps callers out
+   * of `index` directly. */
+  removeAttachmentText(original: ActionHash, name: string): void {
+    this.index.removeAttachmentText(original, name);
+  }
+
   run(folderId: string | null, folders: Folder[]): SearchHit[] {
     const filters: SearchFilters = {
       folderId,

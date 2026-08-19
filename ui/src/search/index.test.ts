@@ -128,6 +128,17 @@ describe('ArkIndex', () => {
     expect(hits[0].attachmentName).toEqual('budget.csv');
   });
 
+  it('stops matching an attachment once its text is removed', () => {
+    const index = makeIndex();
+    index.setAttachmentText(hash(2), 'budget.csv', 'line item,amount\nwellhouse,4200\n');
+    expect(index.search('wellhouse', noFilters)).toHaveLength(1);
+
+    // Detaching a file must not leave it searchable under a document that no
+    // longer has it.
+    index.removeAttachmentText(hash(2), 'budget.csv');
+    expect(index.search('wellhouse', noFilters)).toEqual([]);
+  });
+
   it('drops a removed document from results', () => {
     const index = makeIndex();
     index.remove(hash(1));
