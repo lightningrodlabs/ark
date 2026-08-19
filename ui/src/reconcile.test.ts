@@ -7,12 +7,14 @@ function fakeDeps(
     changed?: boolean;
     docsMoved?: boolean;
     treeMoved?: boolean;
+    structurePending?: boolean;
     sync?: Partial<SyncResult>;
   } = {},
 ) {
   const tree = {
     folders: [{ id: 'root' }] as any,
     load: vi.fn(async () => opts.treeMoved ?? false),
+    structurePending: opts.structurePending ?? false,
   };
   const syncResult: SyncResult = {
     changed: false,
@@ -116,6 +118,34 @@ describe('reconcile', () => {
     const deps = fakeDeps({ changed: true, sync: { changed: false, fellBack: true } });
     expect(await reconcile('focus', deps as any)).toBe(false);
     expect(deps.search.rebuild).not.toHaveBeenCalled();
+  });
+
+  // The gap this closes: changedSince() only looks at the document side, so a
+  // node whose folder structure is still arriving (structurePending) would
+  // otherwise sit there — every focus/timer tick sees an unchanged document
+  // total, returns early, and tree.load() is never retried — until the next
+  // unconditional sweep, up to thirty minutes away.
+  it('keeps retrying the tree on a focus trigger while structure is pending, even with nothing else changed', async () => {
+    const deps = fakeDeps({ changed: false, structurePending: true, sync: { changed: false } });
+    const didReload = await reconcile('focus', deps as any);
+
+    expect(deps.store.changedSince).not.toHaveBeenCalled();
+    expect(deps.tree.load).toHaveBeenCalledOnce();
+    expect(deps.store.syncMissing).toHaveBeenCalledOnce();
+    expect(didReload).toBe(false);
+  });
+
+  it('keeps retrying the tree on an ordinary timer tick while structure is pending', async () => {
+    const deps = fakeDeps({ structurePending: true, sync: { changed: true } });
+    expect(await reconcile('timer', deps as any)).toBe(true);
+    expect(deps.tree.load).toHaveBeenCalledOnce();
+  });
+
+  it('falls back to the cheap changedSince check once structure is no longer pending', async () => {
+    const deps = fakeDeps({ structurePending: false, changed: false });
+    expect(await reconcile('focus', deps as any)).toBe(false);
+    expect(deps.store.changedSince).toHaveBeenCalledOnce();
+    expect(deps.tree.load).not.toHaveBeenCalled();
   });
 
   it('always fully reloads on a sweep, without consulting changedSince or syncMissing', async () => {

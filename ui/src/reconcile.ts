@@ -88,6 +88,16 @@ async function syncMissing({ tree, store, search }: ReconcileDeps): Promise<bool
  */
 export async function reconcile(source: ReconcileSource, deps: ReconcileDeps): Promise<boolean> {
   if (source === 'sweep') return reloadEverything(deps);
+  // `changedSince()` only looks at the document side (the AllDocuments total
+  // and trash membership) — it has no way to notice that the folder tree
+  // itself is still arriving, since that touches neither. Without this check,
+  // a node with `structurePending` true could sit there until the next
+  // `sweep` (up to thirty minutes) even while the user keeps refocusing the
+  // tab, because every ordinary focus/timer tick would see an unchanged
+  // document total and return early before ever calling `tree.load()` again.
+  // `syncMissing` always reloads the tree first, so retrying it here is what
+  // makes "keep retrying" true rather than aspirational.
+  if (deps.tree.structurePending) return syncMissing(deps);
   const changed = await deps.store.changedSince();
   if (!changed) return false;
   return syncMissing(deps);
