@@ -42,6 +42,12 @@ test('a document created into a folder appears in that folder\'s list and can be
 
   await expect(page.getByRole('heading', { name: 'January meeting' })).toBeVisible();
   await expect(page.locator('.body')).toContainText('We approved the annual budget of $12,000.');
+
+  // "Add to pocket" is a Moss control (see DocumentView, we.ts) gated on a
+  // dnaHash that only ever gets set when a real weaveClient connects. The
+  // harness never sets one, so the buttons must not render here — if they
+  // did, clicking one would throw on the missing dnaHash rather than no-op.
+  await expect(page.getByRole('button', { name: /pocket/i })).toHaveCount(0);
 });
 
 test('amending a document keeps the old body reachable and adds a version', async ({ page }) => {

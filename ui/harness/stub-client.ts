@@ -21,6 +21,14 @@ export interface StubAppClient {
   myPubKey: AgentPubKey;
   callZome(request: { role_name: string; zome_name: string; fn_name: string; payload: unknown }): Promise<unknown>;
   on(event: string, cb: (signal: unknown) => void): () => void;
+  /**
+   * Every zome fn name this client has been asked to call, in order. Exists
+   * only for tests: the asset-view harness seam asserts `get_all_documents`
+   * is never in here, which is what keeps "an asset view must not boot the
+   * app" an enforced property rather than a comment. Production `AppClient`
+   * has no such field — nothing in `src/` reads it.
+   */
+  calls: string[];
 }
 
 let counter = 0;
@@ -270,9 +278,13 @@ export function createStubClient(): StubAppClient {
     },
   };
 
+  const calls: string[] = [];
+
   return {
     myPubKey,
+    calls,
     async callZome(request) {
+      calls.push(request.fn_name);
       const handler = handlers[request.fn_name];
       if (!handler) throw new Error(`stub-client: unhandled zome fn "${request.fn_name}"`);
       return handler(request.payload);

@@ -1,3 +1,4 @@
+import type { ActionHash } from '@holochain/client';
 import type { StubAppClient } from './stub-client';
 
 /** Thirteen committees, as the Drupal archive being replaced has. */
@@ -53,4 +54,27 @@ export async function seedReferenceArchive(client: StubAppClient): Promise<void>
     });
     made++;
   }
+}
+
+/** Fixed title/body the asset-view specs assert against. */
+export const ASSET_DOCUMENT_TITLE = 'Board Minutes';
+export const ASSET_DOCUMENT_BODY_TEXT = 'The treasurer presented the budget and it was approved.';
+
+/**
+ * One document, created directly against the stub (not through the UI), for
+ * the Moss asset-view seam in harness-main.ts. Its hash is what
+ * `__ARK_TEST_ASSET__` names as the document to render — see
+ * `App.svelte`'s onMount, which reads `assetWal.hrl[1]` from it exactly as
+ * it would read `weaveClient.renderInfo.view.wal.hrl[1]` inside real Moss.
+ */
+export async function seedAssetDocument(client: StubAppClient): Promise<ActionHash> {
+  return (await call(client, 'create_document', {
+    // Deliberately no leading `# ` heading: `meta.title` already renders as
+    // the page's <h2>, and a markdown title here would duplicate it as an
+    // <h1> — exactly the kind of accidental double-heading a real minutes
+    // document would not have either.
+    body: ASSET_DOCUMENT_BODY_TEXT,
+    meta: { title: ASSET_DOCUMENT_TITLE, date: '2026-01-15' },
+    folder_id: null,
+  })) as ActionHash;
 }

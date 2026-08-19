@@ -6,19 +6,43 @@ import '../src/app.css';
 import { mount } from 'svelte';
 import App from '../src/App.svelte';
 import { createStubClient } from './stub-client';
-import { seedReferenceArchive } from './seed';
+import { seedReferenceArchive, seedAssetDocument } from './seed';
 
 const client = createStubClient();
+const params = new URLSearchParams(location.search);
 
 // `?seed=archive` fills the stub with an archive the shape of the real one
 // before the app mounts — thirteen committees, 1406 documents, the largest
 // committee holding 280. Used by scale.spec.ts to exercise the tree at the
 // size it actually has to work at. Absent by default, so every other spec
 // still starts from an empty archive.
-if (new URLSearchParams(location.search).get('seed') === 'archive') {
+if (params.get('seed') === 'archive') {
   await seedReferenceArchive(client);
 }
 
+// `?asset=plain` or `?asset=rendered` seeds one known document directly
+// against the stub, then sets `__ARK_TEST_ASSET__` so App.svelte's onMount
+// takes the Moss asset-rendering branch instead of the normal boot path —
+// the seam described in asset-view.spec.ts. The two values differ only in
+// `context.view`, mirroring the two WALs the same document gets in real
+// Moss (see we.ts / DocumentView's "Add to pocket" controls).
+const asset = params.get('asset');
+if (asset === 'plain' || asset === 'rendered') {
+  const hash = await seedAssetDocument(client);
+  (window as unknown as { __ARK_TEST_ASSET__?: unknown }).__ARK_TEST_ASSET__ = {
+    hash,
+    context: asset === 'rendered' ? { view: 'rendered' } : {},
+  };
+} else if (asset === 'missing') {
+  // A hash the stub has never seen — the same shape a trashed or
+  // not-yet-synced document produces for a real WAL in Moss.
+  (window as unknown as { __ARK_TEST_ASSET__?: unknown }).__ARK_TEST_ASSET__ = {
+    hash: new Uint8Array(39),
+    context: {},
+  };
+}
+
 (window as unknown as { __ARK_TEST_CLIENT__?: unknown }).__ARK_TEST_CLIENT__ = client;
+(window as unknown as { __ARK_ZOME_CALLS__?: unknown }).__ARK_ZOME_CALLS__ = client.calls;
 
 export default mount(App, { target: document.body });
