@@ -44,8 +44,25 @@ export function mergeHeads(heads: TreeHead[]): Folder[] {
  * needing a recursive write.
  */
 export function liveFolders(folders: Folder[]): Folder[] {
+  const isDead = deadPredicate(folders);
+  return folders.filter((f) => !isDead(f));
+}
+
+/**
+ * Folders hidden from the tree: tombstoned folders themselves, and anything
+ * beneath a tombstone (a live-flagged child of a deleted parent counts as
+ * dead here too). Complement of `liveFolders`, and the predicate the orphan
+ * bin uses so a document filed under a tombstoned *subtree* — not just a
+ * tombstoned folder directly — still gets a bin to land in.
+ */
+export function deadFolders(folders: Folder[]): Folder[] {
+  const isDead = deadPredicate(folders);
+  return folders.filter((f) => isDead(f));
+}
+
+function deadPredicate(folders: Folder[]): (folder: Folder) => boolean {
   const byId = new Map(folders.map((f) => [f.id, f]));
-  const isDead = (folder: Folder): boolean => {
+  return (folder: Folder): boolean => {
     const seen = new Set<string>();
     let current: Folder | undefined = folder;
     while (current && !seen.has(current.id)) {
@@ -55,5 +72,4 @@ export function liveFolders(folders: Folder[]): Folder[] {
     }
     return false;
   };
-  return folders.filter((f) => !isDead(f));
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeHeads, liveFolders } from './merge';
+import { mergeHeads, liveFolders, deadFolders } from './merge';
 import type { Folder, TreeHead } from '../types';
 
 const f = (id: string, name: string, parent: string | null = null, deleted = false): Folder => ({
@@ -70,5 +70,18 @@ describe('liveFolders', () => {
   it('keeps a folder whose parent is missing entirely', () => {
     const folders = [f('orphan', 'Orphan', 'gone')];
     expect(liveFolders(folders).map((x) => x.id)).toEqual(['orphan']);
+  });
+});
+
+describe('deadFolders', () => {
+  it('is the complement of liveFolders, including a live-flagged child of a tombstone', () => {
+    const folders = [f('p', 'Parent', null, true), f('c', 'Child', 'p'), f('o', 'Other')];
+    expect(deadFolders(folders).map((x) => x.id).sort()).toEqual(['c', 'p']);
+    expect(liveFolders(folders).map((x) => x.id)).toEqual(['o']);
+  });
+
+  it('does not mark a folder whose parent is merely missing', () => {
+    const folders = [f('orphan', 'Orphan', 'gone')];
+    expect(deadFolders(folders)).toEqual([]);
   });
 });

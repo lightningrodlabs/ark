@@ -120,6 +120,29 @@ describe('DocumentStore', () => {
     expect(bins[0].documents.map((d) => d.meta.title)).toEqual(['Stranded']);
   });
 
+  it('bins a document filed under a live-flagged child of a tombstoned folder', async () => {
+    // FolderTree only tombstones the folder actually deleted, not its
+    // children — 'goneChild' below still has deleted: false. A document filed
+    // there is in no live folder (the whole subtree is hidden) and is not
+    // unfiled (its filing id is truthy), so without ancestry-based selection
+    // it would have no bin at all: reachable only through "All documents" or
+    // search, with no way to re-file it.
+    const withSubtree: Folder[] = [
+      ...folders,
+      { id: 'goneChild', name: 'Gone Child', parent: 'gone', order: 0, deleted: false },
+    ];
+    const docs = [summary(1, 'Buried')];
+    const filings: FolderFiling[] = [{ folder_id: 'goneChild', documents: [hash(1)] }];
+    const store = new DocumentStore(fakeArk(docs, filings), 100);
+    await store.load(withSubtree);
+
+    expect(store.unfiled()).toEqual([]);
+    const bins = store.inDeletedFolders(withSubtree);
+    expect(bins).toHaveLength(1);
+    expect(bins[0].folder.id).toEqual('goneChild');
+    expect(bins[0].documents.map((d) => d.meta.title)).toEqual(['Buried']);
+  });
+
   it('excludes trashed documents from folder listings but keeps them readable', async () => {
     const docs = [summary(1, 'Kept'), summary(2, 'Binned')];
     const filings: FolderFiling[] = [{ folder_id: 'root', documents: [hash(1), hash(2)] }];

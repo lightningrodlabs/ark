@@ -2,6 +2,7 @@ import { encodeHashToBase64, type ActionHash } from '@holochain/client';
 import { ARK_CHUNK, type ArkClient } from '../ark-client';
 import type { ArkSignal, DocumentSummary, Folder } from '../types';
 import { descendantIds } from '../tree/paths';
+import { deadFolders } from '../tree/merge';
 
 /** Map key for any hash. Uint8Array is not usable as a Map key by value. */
 export const key = (hash: ActionHash): string => encodeHashToBase64(hash);
@@ -128,10 +129,15 @@ export class DocumentStore {
       .map(([, doc]) => doc);
   }
 
-  /** One bin per tombstoned folder that still has documents filed under it. */
+  /**
+   * One bin per dead folder that still has documents filed directly under it —
+   * "dead" meaning tombstoned itself OR a descendant of a tombstoned folder.
+   * A document filed under a live-flagged child of a deleted parent is in no
+   * live folder and would otherwise be reachable only through "All documents"
+   * or search, with no way to re-file it.
+   */
   inDeletedFolders(folders: Folder[]): DeletedFolderBin[] {
-    return folders
-      .filter((f) => f.deleted)
+    return deadFolders(folders)
       .map((folder) => ({
         folder,
         documents: [...this.byOriginal.entries()]
