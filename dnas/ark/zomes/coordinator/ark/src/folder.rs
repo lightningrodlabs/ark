@@ -126,3 +126,70 @@ pub fn update_folder_tree(input: UpdateFolderTreeInput) -> ExternResult<ActionHa
         "No tree tip to update".to_string()
     )))
 }
+
+/// Link a document's original create action into a folder. The tag carries the
+/// document's `date` metadata so a folder listing can be ordered without
+/// fetching entries.
+pub fn file_document(folder_id: &str, original: ActionHash, date: &str) -> ExternResult<()> {
+    create_link(
+        Path::from(folder_anchor(folder_id)).path_entry_hash()?,
+        original,
+        LinkTypes::FolderToDocument,
+        LinkTag::new(date.as_bytes().to_vec()),
+    )?;
+    Ok(())
+}
+
+/// Remove every link filing `original` under `folder_id`. Concurrent filings can
+/// produce more than one, so all are removed.
+pub fn unfile_document(folder_id: &str, original: &ActionHash) -> ExternResult<()> {
+    let links = get_links(
+        LinkQuery::try_new(
+            Path::from(folder_anchor(folder_id)).path_entry_hash()?,
+            LinkTypes::FolderToDocument,
+        )?,
+        GetStrategy::Local,
+    )?;
+    for link in links {
+        if ActionHash::try_from(link.target.clone()).ok().as_ref() == Some(original) {
+            delete_link(link.create_link_hash, GetOptions::local())?;
+        }
+    }
+    Ok(())
+}
+
+#[hdk_extern]
+pub fn move_document(input: MoveDocumentInput) -> ExternResult<()> {
+    if let Some(from) = &input.from {
+        unfile_document(from, &input.original)?;
+    }
+    if let Some(to) = &input.to {
+        let date = crate::document::document_summary(input.original.clone())?
+            .and_then(|s| s.meta.get("date").cloned())
+            .unwrap_or_default();
+        file_document(to, input.original, &date)?;
+    }
+    Ok(())
+}
+
+#[hdk_extern]
+pub fn get_filings(folder_ids: Vec<String>) -> ExternResult<Vec<FolderFiling>> {
+    let mut out = Vec::new();
+    for folder_id in folder_ids {
+        let links = get_links(
+            LinkQuery::try_new(
+                Path::from(folder_anchor(&folder_id)).path_entry_hash()?,
+                LinkTypes::FolderToDocument,
+            )?,
+            GetStrategy::Local,
+        )?;
+        let mut documents: Vec<ActionHash> = links
+            .into_iter()
+            .filter_map(|link| ActionHash::try_from(link.target).ok())
+            .collect();
+        documents.sort();
+        documents.dedup();
+        out.push(FolderFiling { folder_id, documents });
+    }
+    Ok(out)
+}

@@ -21,6 +21,7 @@ pub enum EntryTypes {
 pub enum LinkTypes {
     AllDocuments,
     AllTrees,
+    FolderToDocument,
 }
 
 #[hdk_extern]

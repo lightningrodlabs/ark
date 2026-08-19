@@ -31,16 +31,18 @@ pub fn document_summary(original: ActionHash) -> ExternResult<Option<DocumentSum
 
 #[hdk_extern]
 pub fn create_document(input: CreateDocumentInput) -> ExternResult<ActionHash> {
-    let action_hash = create_entry(EntryTypes::Document(Document {
-        body: input.body,
-        meta: input.meta,
-    }))?;
+    let document = Document { body: input.body, meta: input.meta };
+    let action_hash = create_entry(EntryTypes::Document(document.clone()))?;
     create_link(
         Path::from(ALL_DOCUMENTS).path_entry_hash()?,
         action_hash.clone(),
         LinkTypes::AllDocuments,
         (),
     )?;
+    if let Some(folder_id) = &input.folder_id {
+        let date = document.meta.get("date").cloned().unwrap_or_default();
+        crate::folder::file_document(folder_id, action_hash.clone(), &date)?;
+    }
     Ok(action_hash)
 }
 

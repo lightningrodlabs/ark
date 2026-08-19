@@ -53,3 +53,16 @@ pub struct TreeHead {
     pub timestamp: Timestamp,
     pub folders: Vec<Folder>,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MoveDocumentInput {
+    pub original: ActionHash,
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FolderFiling {
+    pub folder_id: String,
+    pub documents: Vec<ActionHash>,
+}
