@@ -2,6 +2,17 @@ export interface ParsedQuery {
   terms: string[];
   phrases: string[];
   excluded: string[];
+  /**
+   * The literal strings worth marking wherever a match is shown to the user
+   * — result snippets and the opened document alike.
+   *
+   * Not the same list as `terms`: a quoted phrase contributes the whole
+   * phrase and not its words, because a phrase matched as a phrase and
+   * lighting up each word separately would claim matches the search never
+   * made. Exclusions are absent by construction — `-draft` is a reason a
+   * document is NOT in the results, never something to point at inside one.
+   */
+  highlight: string[];
   combineWith: 'AND' | 'OR';
 }
 
@@ -14,13 +25,19 @@ export function parseQuery(raw: string): ParsedQuery {
   const phrases: string[] = [];
   const excluded: string[] = [];
   const terms: string[] = [];
+  const highlight: string[] = [];
   let combineWith: 'AND' | 'OR' = 'AND';
 
   const withoutPhrases = raw.replace(/"([^"]+)"/g, (_, phrase: string) => {
     const trimmed = phrase.trim();
     if (trimmed) {
       phrases.push(trimmed.toLowerCase());
+      // The index cannot express adjacency, so the phrase's words go in as
+      // ordinary terms and `matchesParsed` enforces the phrase afterwards.
+      // Highlighting, which has the whole text in hand, needs no such
+      // approximation and marks the phrase itself.
       terms.push(...trimmed.toLowerCase().split(/\s+/));
+      highlight.push(trimmed.toLowerCase());
     }
     return ' ';
   });
@@ -39,10 +56,11 @@ export function parseQuery(raw: string): ParsedQuery {
       excluded.push(token.slice(1).toLowerCase());
     } else {
       terms.push(token.toLowerCase());
+      highlight.push(token.toLowerCase());
     }
   }
 
-  return { terms, phrases, excluded, combineWith };
+  return { terms, phrases, excluded, highlight, combineWith };
 }
 
 /** Phrase adjacency and negation, which the index cannot express. */

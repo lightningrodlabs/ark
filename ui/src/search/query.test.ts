@@ -7,6 +7,7 @@ describe('parseQuery', () => {
       terms: ['well', 'pump'],
       phrases: [],
       excluded: [],
+      highlight: ['well', 'pump'],
       combineWith: 'AND',
     });
   });
@@ -31,6 +32,30 @@ describe('parseQuery', () => {
 
   it('returns an empty parse for whitespace', () => {
     expect(parseQuery('   ').terms).toEqual([]);
+    expect(parseQuery('   ').highlight).toEqual([]);
+  });
+});
+
+// `highlight` is what gets marked wherever a match is shown — the KWIC
+// snippets and the opened document. It deliberately differs from `terms`.
+describe('parseQuery highlight', () => {
+  it('marks a phrase whole rather than word by word', () => {
+    const parsed = parseQuery('"well pump"');
+    expect(parsed.terms).toEqual(['well', 'pump']);
+    expect(parsed.highlight).toEqual(['well pump']);
+  });
+
+  it('keeps bare terms alongside a phrase', () => {
+    expect(parseQuery('"well pump" repair').highlight).toEqual(['well pump', 'repair']);
+  });
+
+  it('never marks an exclusion, in either spelling', () => {
+    expect(parseQuery('budget -draft NOT roof').highlight).toEqual(['budget']);
+  });
+
+  it('never marks the operators themselves', () => {
+    expect(parseQuery('roof OR well').highlight).toEqual(['roof', 'well']);
+    expect(parseQuery('roof AND well').highlight).toEqual(['roof', 'well']);
   });
 });
 

@@ -1,5 +1,6 @@
 import type { ActionHash } from '@holochain/client';
 import { ArkIndex, type SearchFilters, type SearchHit } from '../search/index';
+import { parseQuery } from '../search/query';
 import type { DocumentStore } from './documents.svelte';
 import type { DocumentSummary, Folder } from '../types';
 
@@ -71,6 +72,17 @@ export class SearchStore {
    * to whatever is merely selected in the tree. */
   run(folders: Folder[]): SearchHit[] {
     return this.index.search(this.query, this.filters(folders, this.folderScope?.id ?? null));
+  }
+
+  /**
+   * The literal strings the current query asks to see marked — phrases
+   * whole, exclusions never. Captured when a result is opened so the
+   * document that was landed on can highlight exactly what matched; the
+   * view layer stays out of the query parser the same way it stays out of
+   * the index.
+   */
+  highlightTerms(): string[] {
+    return parseQuery(this.query).highlight;
   }
 
   /**
