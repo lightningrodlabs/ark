@@ -8,3 +8,6 @@ dist.zip
 .DS_Store
 .hc*
 ui/harness/__results__/
+test-results/
+ui/test-results/
+playwright-report/
