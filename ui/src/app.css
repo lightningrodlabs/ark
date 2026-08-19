@@ -1,7 +1,36 @@
 :root {
   font-family: system-ui, sans-serif;
-  color-scheme: light dark;
+  /*
+   * Committed to light, not `light dark`. Shoelace's light theme is the only
+   * one loaded (see src/shoelace.ts), so letting the UA paint dark form
+   * controls over a light page would only ever mismatch.
+   */
+  color-scheme: light;
 }
-body { margin: 0; }
-main { padding: 1rem; }
-.error { color: #b00020; white-space: pre-wrap; }
+
+body {
+  margin: 0;
+  /*
+   * An OPAQUE background, and not only for looks.
+   *
+   * Nothing here painted a background, so the applet iframe was transparent
+   * and Moss's own backdrop showed through. Text drawn onto a transparent
+   * compositing layer cannot use subpixel antialiasing — the renderer falls
+   * back to grayscale — and against Moss's backdrop that reads as a fuzzy
+   * shadow outlining every glyph. It is not a text-shadow (there is none
+   * anywhere in this app, nor in Shoelace's theme); it is what unantialiased
+   * text over a transparent layer looks like. Painting an opaque colour is
+   * the fix for both the see-through background and the fuzzy text.
+   *
+   * `--sl-color-neutral-0` rather than a literal: it is white in Shoelace's
+   * light theme, and is the token that would follow along on its own if the
+   * dark theme were ever loaded to match a Moss dark mode.
+   */
+  background: var(--sl-color-neutral-0, #fff);
+  color: var(--sl-color-neutral-900, #18181b);
+}
+
+.error {
+  color: #b00020;
+  white-space: pre-wrap;
+}

@@ -1,5 +1,13 @@
 import { test, expect } from '@playwright/test';
-import { createDocument, createRootFolder, selectFolder } from './helpers';
+import {
+  createDocument,
+  createRootFolder,
+  documentNode,
+  folderMenuAction,
+  folderNode,
+  openDocument,
+  selectFolder,
+} from './helpers';
 
 // These specs walk the paths a person actually uses. Together with the two
 // bug-repro specs they are the closest thing this repo has to documentation
@@ -10,7 +18,7 @@ test('creating a folder shows it in the pane', async ({ page }) => {
 
   await createRootFolder(page, 'Board Minutes');
 
-  await expect(page.getByRole('button', { name: /^Board Minutes/ })).toBeVisible();
+  await expect(folderNode(page, 'Board Minutes')).toBeVisible();
 });
 
 test('a document created into a folder appears in that folder\'s list and can be read', async ({
@@ -26,12 +34,11 @@ test('a document created into a folder appears in that folder\'s list and can be
     date: '2026-01-15',
   });
 
-  // Creating opens the document directly; back out to the folder's list and
-  // click it to confirm it is really filed there, not just held in memory.
+  // Creating opens the document directly; back out to the folder and click
+  // the leaf to confirm it is really filed there, not just held in memory.
   await selectFolder(page, 'Board Minutes');
-  const entry = page.locator('.list-column').getByRole('button', { name: /January meeting/ });
-  await expect(entry).toBeVisible();
-  await entry.click();
+  await expect(documentNode(page, 'January meeting')).toBeVisible();
+  await openDocument(page, 'January meeting');
 
   await expect(page.getByRole('heading', { name: 'January meeting' })).toBeVisible();
   await expect(page.locator('.body')).toContainText('We approved the annual budget of $12,000.');
@@ -64,7 +71,9 @@ test('search finds a document by a word in its body, and reports no hits for an 
 
   const search = page.locator('input[type="search"]');
   const resultCount = page.locator('.bar .count');
-  const hit = page.locator('.list-column').getByRole('button', { name: /Fundraiser recap/ });
+  // Results are an overlay anchored to the input now, not a column that
+  // replaced the tree — see search-overlay.spec.ts.
+  const hit = page.locator('.search-popup .panel li.result', { hasText: 'Fundraiser recap' });
   await search.fill('bake sale');
   await expect(resultCount).toHaveText('1 result');
   await expect(hit).toBeVisible();
@@ -78,13 +87,17 @@ test('trashing a document removes it from the list and Trash; restoring returns 
   page,
 }) => {
   await page.goto('/harness/index.html');
+  await createRootFolder(page, 'Board Minutes');
+  await selectFolder(page, 'Board Minutes');
   await createDocument(page, { title: 'Draft agenda', body: 'Item one, item two.' });
 
   await page.getByRole('button', { name: 'Trash' }).click();
 
-  const listEntry = page.locator('.list-column').getByRole('button', { name: /Draft agenda/ });
-  await expect(listEntry).toHaveCount(0);
+  // Gone from the folder it was filed in...
+  await selectFolder(page, 'Board Minutes');
+  await expect(documentNode(page, 'Draft agenda')).toHaveCount(0);
 
+  // ...and listed in the Trash section below the tree.
   const trashSection = page.locator('section', { hasText: 'Trash' });
   const trashEntry = trashSection.getByRole('button', { name: 'Draft agenda' });
   await expect(trashEntry).toBeVisible();
@@ -92,7 +105,8 @@ test('trashing a document removes it from the list and Trash; restoring returns 
   await trashSection.getByRole('button', { name: 'Restore' }).click();
 
   await expect(trashSection.getByRole('button', { name: 'Draft agenda' })).toHaveCount(0);
-  await expect(page.locator('.list-column').getByRole('button', { name: /Draft agenda/ })).toBeVisible();
+  await selectFolder(page, 'Board Minutes');
+  await expect(documentNode(page, 'Draft agenda')).toBeVisible();
 });
 
 test('deleting a folder relocates the document inside it rather than losing it', async ({ page }) => {
@@ -102,25 +116,19 @@ test('deleting a folder relocates the document inside it rather than losing it',
   await createDocument(page, { title: 'Committee notes', body: 'Notes from the old committee.' });
 
   await selectFolder(page, 'Old Committee');
-  await expect(
-    page.locator('.list-column').getByRole('button', { name: /Committee notes/ }),
-  ).toBeVisible();
+  await expect(documentNode(page, 'Committee notes')).toBeVisible();
 
   // Deleting a root folder relocates its documents to Unfiled (no parent to
   // fall back to) — see planFolderDeletion in tree/deletion.ts. confirm() IS
   // implemented by Electron (unlike prompt() — see bug-folder-prompt.spec.ts),
   // so accepting it here is the same path a real click takes.
   page.once('dialog', (dialog) => dialog.accept());
-  const folderRow = page.locator('li', { hasText: 'Old Committee' }).first();
-  await folderRow.getByTitle('Delete').click();
+  await folderMenuAction(page, 'Old Committee', 'Delete');
 
-  await expect(page.getByRole('button', { name: /^Old Committee/ })).toHaveCount(0);
+  await expect(folderNode(page, 'Old Committee')).toHaveCount(0);
 
-  await selectFolder(page, 'All documents');
-  await expect(
-    page.locator('.list-column').getByRole('button', { name: /Committee notes/ }),
-  ).toBeVisible();
-
+  // Relocated to Unfiled, which is where a document belonging to no folder is
+  // reachable now that the tree shows real folders only.
   const unfiledSection = page.locator('section', { hasText: 'Unfiled' });
   const unfiledEntry = unfiledSection.getByRole('button', { name: /Committee notes/ });
   await expect(unfiledEntry).toBeVisible();

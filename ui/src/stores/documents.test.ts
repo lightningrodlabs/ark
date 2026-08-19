@@ -191,6 +191,39 @@ describe('DocumentStore', () => {
     expect(store.byOriginal.get(key(hash(9)))!.meta.title).toEqual('Nine');
   });
 
+  // The tree renders sub-folders and documents as siblings under one folder
+  // node, so it needs what is filed directly here — not the subtree roll-up
+  // `inFolder` gives, which would repeat every document at every ancestor.
+  it('lists documents filed directly in a folder, newest first, excluding trashed', async () => {
+    const docs = [summary(1, 'A'), summary(2, 'B'), summary(3, 'C')];
+    const filings: FolderFiling[] = [
+      { folder_id: 'root', documents: [hash(1), hash(3)] },
+      { folder_id: 'child', documents: [hash(2)] },
+    ];
+    const store = new DocumentStore(fakeArk(docs, filings, [hash(3)]), 100);
+    await store.load(folders);
+
+    // hash(3) is trashed, hash(2) is in the child folder, not this one.
+    expect(store.directlyIn('root').map((d) => d.meta.title)).toEqual(['A']);
+    expect(store.directlyIn('child').map((d) => d.meta.title)).toEqual(['B']);
+    // inFolder rolls the child up into the parent; directlyIn must not.
+    expect(store.inFolder('root', folders).map((d) => d.meta.title).sort()).toEqual(['A', 'B']);
+  });
+
+  it('sorts documents filed directly in a folder by date, newest first', async () => {
+    const docs = [summary(1, 'Oldest'), summary(5, 'Newest'), summary(3, 'Middle')];
+    const filings: FolderFiling[] = [
+      { folder_id: 'root', documents: [hash(1), hash(5), hash(3)] },
+    ];
+    const store = new DocumentStore(fakeArk(docs, filings), 100);
+    await store.load(folders);
+    expect(store.directlyIn('root').map((d) => d.meta.title)).toEqual([
+      'Newest',
+      'Middle',
+      'Oldest',
+    ]);
+  });
+
   describe('changedSince', () => {
     it('is false when the remote document total and trash count both match', async () => {
       const docs = [summary(1, 'One'), summary(2, 'Two')];

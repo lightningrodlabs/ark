@@ -25,3 +25,21 @@ export function folderPath(folders: Folder[], id: string): Folder[] {
   }
   return chain;
 }
+
+/**
+ * Human-readable location of a folder: "Board Minutes / 2026 / Q1".
+ *
+ * Used by the search overlay, where a result has to answer "where is it?" as
+ * well as "what is it?" — a bare folder name is ambiguous across an archive
+ * with thirteen committees that each have a "2026".
+ */
+export function folderPathLabel(
+  folders: Folder[],
+  id: string | null | undefined,
+  unfiled = 'Unfiled',
+): string {
+  if (!id) return unfiled;
+  const chain = folderPath(folders, id);
+  if (chain.length === 0) return unfiled;
+  return chain.map((f) => f.name).join(' / ');
+}

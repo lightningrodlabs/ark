@@ -13,14 +13,15 @@
   import { SignalStore } from './stores/signals.svelte';
   import { reconcile } from './reconcile';
   import { trashEntries, type TrashEntry } from './stores/orphans';
+  import { folderPathLabel } from './tree/paths';
+  import type { SearchHit } from './search/index';
   import type { ActionHash } from '@holochain/client';
   import type { DocumentSummary } from './types';
-  import FolderTree from './lib/FolderTree.svelte';
-  import DocumentList from './lib/DocumentList.svelte';
+  import './shoelace';
+  import ArkTree from './lib/ArkTree.svelte';
   import DocumentView from './lib/DocumentView.svelte';
   import DocumentEditor from './lib/DocumentEditor.svelte';
   import SearchBar from './lib/SearchBar.svelte';
-  import SearchResults from './lib/SearchResults.svelte';
   import OrphanBin from './lib/OrphanBin.svelte';
   import TrashView from './lib/TrashView.svelte';
   import ImportPanel from './lib/ImportPanel.svelte';
@@ -136,15 +137,13 @@
 
   onDestroy(() => signals?.stop());
 
-  // Root selection ("All documents") shows everything not trashed; a folder
-  // selection narrows to that folder's subtree via the store.
-  let documents = $derived.by(() => {
-    if (!store || !tree) return [];
-    const docs = store;
-    return selectedFolder === null
-      ? [...docs.byOriginal.values()].filter((d) => !docs.trashed.has(key(d.original)))
-      : docs.inFolder(selectedFolder, tree.live);
-  });
+  // Where a hit lives, for the search overlay's "where is it?" line. Folders
+  // are ambiguous by name alone across thirteen committees that each have a
+  // "2026", so this is the whole ancestor chain.
+  function locationOf(hit: SearchHit): string {
+    if (!store || !tree) return '';
+    return folderPathLabel(tree.live, store.filings.get(key(hit.doc.original)));
+  }
 
   // Distinct authors across the archive. The search module itself does not
   // know about profiles or identity — it only sees the raw agent key — so
@@ -255,6 +254,13 @@
   function openDoc(doc: DocumentSummary) {
     selectedDoc = doc;
     editing = null;
+    importing = false;
+  }
+
+  /** The tree hands back a document key, not the summary itself. */
+  function openDocByKey(k: string) {
+    const doc = store?.byOriginal.get(k);
+    if (doc) openDoc(doc);
   }
 
   let unfiledDocs = $derived(store ? store.unfiled() : []);
@@ -274,7 +280,9 @@
 </script>
 
 <main>
-  <h1>ark</h1>
+  <!-- No <h1>ark</h1>: Moss's own tool bar already names the applet directly
+       above this iframe, so a second title only cost vertical space in a pane
+       that is mostly a list. -->
   {#if error}
     <p class="error">{error}</p>
   {:else if !tree || !ark}
@@ -289,16 +297,56 @@
         syncing from other peers.
       </p>
     {/if}
-    <div class="layout">
-      <div class="sidebar">
-        <FolderTree
+
+    <!-- Toolbar and search span the full width, above the split. The search
+         overlay anchors to an input this wide, which is what gives the KWIC
+         snippets room to be readable; anchored inside the tree column they
+         would be a few words per line. -->
+    <div class="header">
+      <div class="toolbar">
+        <button class="new-doc" onclick={newDoc}>New document</button>
+        <button class="import" onclick={toggleImport}>{importing ? 'Close import' : 'Import'}</button>
+      </div>
+      {#if search}
+        <div class="search-slot">
+          <SearchBar
+            {search}
+            hits={searchResults}
+            {searching}
+            {locationOf}
+            {authors}
+            onSelect={(hit) => openDoc(hit.doc)}
+          />
+        </div>
+      {/if}
+    </div>
+
+    <!-- sl-split-panel rather than plain flex. The columns used to be sized by
+         their content, so opening a document — which changes what is in the
+         right-hand pane — resized the left-hand one underneath the pointer.
+         A split panel gives both panes a position that only ever moves when
+         the divider is dragged. -->
+    <sl-split-panel class="layout" position="30" snap="25% 30% 40%">
+      <div slot="start" class="pane pane-start">
+        <ArkTree
           {tree}
+          {store}
           {ark}
           {signals}
-          selected={selectedFolder}
           counts={store.counts(tree.live)}
-          onSelect={selectFolder}
+          {selectedFolder}
+          selectedDoc={selectedDoc ? key(selectedDoc.original) : null}
+          onSelectFolder={selectFolder}
+          onOpenDocument={openDocByKey}
         />
+        <!-- Bins and Trash stay BELOW the tree rather than becoming nodes in
+             it. They are recovery surfaces, not part of the archive's filing
+             structure — showing "Unfiled" and "Deleted folder: X" as siblings
+             of real committees would imply they are places to file things.
+             They also carry bulk controls (a destination picker with "Move all
+             here", per-row "Restore") that do not fit a tree row. Both bins
+             render only when non-empty, so the usual state is the tree plus a
+             short Trash section. -->
         <div class="bins">
           {#if unfiledDocs.length > 0}
             <OrphanBin
@@ -323,76 +371,127 @@
           <TrashView entries={trashList} onRestore={restoreDoc} onOpen={openTrashed} />
         </div>
       </div>
-      <div class="list-column">
-        <div class="toolbar">
-          <button class="new-doc" onclick={newDoc}>New document</button>
-          <button class="import" onclick={toggleImport}>{importing ? 'Close import' : 'Import'}</button>
-        </div>
-        {#if search}
-          <SearchBar {search} resultCount={searchResults.length} {authors} />
-        {/if}
-        {#if searching}
-          <SearchResults hits={searchResults} onSelect={openDoc} />
-        {:else}
-          <DocumentList
-            {documents}
-            selected={selectedDoc ? key(selectedDoc.original) : null}
-            onSelect={openDoc}
+
+      <div slot="end" class="pane pane-end">
+        {#if importing && ark && store && files}
+          <ImportPanel {ark} {tree} {store} fileStorage={files} {search} onDone={onImportDone} />
+        {:else if editing === 'create'}
+          <DocumentEditor
+            {ark}
+            {signals}
+            mode="create"
+            folderId={selectedFolder}
+            folders={tree.live}
+            onDone={onEditorDone}
+            onCancel={() => (editing = null)}
           />
+        {:else if editing === 'amend' && selectedDoc}
+          <DocumentEditor
+            {ark}
+            {signals}
+            mode="amend"
+            doc={selectedDoc}
+            folderId={selectedFolder}
+            folders={tree.live}
+            onDone={onEditorDone}
+            onCancel={() => (editing = null)}
+          />
+        {:else if selectedDoc && files && search}
+          <DocumentView
+            doc={selectedDoc}
+            {ark}
+            {files}
+            {search}
+            onAmend={amendDoc}
+            onTrash={trashDoc}
+          />
+        {:else}
+          <!-- Nothing is selected on load: the tree lists real folders only,
+               so there is no node that stands for "everything". Documents
+               outside every folder stay reachable through the Unfiled bin
+               below the tree. -->
+          <p class="hint">Select a document from the tree, or create one.</p>
         {/if}
       </div>
-      {#if importing && ark && store && files}
-        <ImportPanel {ark} {tree} {store} fileStorage={files} {search} onDone={onImportDone} />
-      {:else if editing === 'create'}
-        <DocumentEditor
-          {ark}
-          {signals}
-          mode="create"
-          folderId={selectedFolder}
-          folders={tree.live}
-          onDone={onEditorDone}
-          onCancel={() => (editing = null)}
-        />
-      {:else if editing === 'amend' && selectedDoc}
-        <DocumentEditor
-          {ark}
-          {signals}
-          mode="amend"
-          doc={selectedDoc}
-          folderId={selectedFolder}
-          folders={tree.live}
-          onDone={onEditorDone}
-          onCancel={() => (editing = null)}
-        />
-      {:else if selectedDoc && files && search}
-        <DocumentView
-          doc={selectedDoc}
-          {ark}
-          {files}
-          {search}
-          onAmend={amendDoc}
-          onTrash={trashDoc}
-        />
-      {:else}
-        <p class="hint">Select a document.</p>
-      {/if}
-    </div>
+    </sl-split-panel>
   {/if}
 </main>
 
 <style>
-  .layout { display: flex; }
-  .sidebar { display: flex; flex-direction: column; }
-  .bins { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.5rem; }
-  .list-column { display: flex; flex-direction: column; }
-  .toolbar { display: flex; gap: 0.5rem; margin: 0.5rem; }
-  .new-doc, .import { margin: 0; }
-  .hint { padding: 1rem; opacity: 0.6; }
+  main {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    box-sizing: border-box;
+    /* Opaque here too, not just on body: the applet fills the iframe, and a
+       transparent root is what made text render without subpixel
+       antialiasing — the "fuzzy shadow outlining" on every glyph. See
+       app.css for the full reasoning. */
+    background: var(--sl-color-neutral-0, #fff);
+  }
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: none;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+    /* The search overlay lives inside this header and drops down over the
+       split panel below. Without a stacking context here the panel — later in
+       document order — paints on top of it, and the results become
+       unclickable even though they are visible. */
+    position: relative;
+    z-index: 5;
+  }
+  .toolbar {
+    display: flex;
+    gap: 0.5rem;
+    margin: 0.5rem;
+    flex: none;
+  }
+  .search-slot {
+    flex: 1;
+    min-width: 0;
+  }
+  .new-doc,
+  .import {
+    margin: 0;
+    white-space: nowrap;
+  }
+  .layout {
+    flex: 1;
+    min-height: 0;
+    /* The divider stays put unless dragged; only these bounds move it, and
+       only when the window itself is too narrow to honour the position. */
+    --min: 14rem;
+    --max: 60%;
+  }
+  /* Each pane scrolls on its own. Without this the whole page scrolls, and a
+     long document in the right-hand pane drags the tree off the top of the
+     screen. */
+  .pane {
+    height: 100%;
+    overflow: auto;
+    box-sizing: border-box;
+  }
+  .pane-start {
+    border-right: 1px solid rgba(128, 128, 128, 0.3);
+  }
+  .bins {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+  .hint {
+    padding: 1rem;
+    opacity: 0.6;
+  }
   .missing-note {
     margin: 0.5rem;
     padding: 0.5rem 0.75rem;
     background: #fef3c7;
     color: #92400e;
     border-radius: 4px;
+    flex: none;
   }
 </style>

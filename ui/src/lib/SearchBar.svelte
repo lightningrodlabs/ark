@@ -1,73 +1,309 @@
 <script lang="ts">
+  import '../shoelace';
   import type { AgentPubKey } from '@holochain/client';
   import type { SearchStore } from '../stores/search.svelte';
+  import type { SearchHit } from '../search/index';
   import AgentAvatar from './AgentAvatar.svelte';
+  import SearchResults from './SearchResults.svelte';
 
   let {
     search,
-    resultCount,
+    hits,
+    searching,
+    locationOf,
     authors,
+    onSelect,
   }: {
     search: SearchStore;
-    resultCount: number;
+    hits: SearchHit[];
+    /** Whether a query or filter is in play at all. */
+    searching: boolean;
+    locationOf: (hit: SearchHit) => string;
     /** Distinct authors across the archive: base64 key (for matching against
      * search.author) plus the raw agent key AgentAvatar needs to resolve a
      * profile avatar or fall back to an identicon. */
     authors: { key: string; hash: AgentPubKey }[];
+    onSelect: (hit: SearchHit) => void;
   } = $props();
+
   let showFilters = $state(false);
+  let input: HTMLInputElement | undefined = $state();
+  let bar: HTMLElement | undefined = $state();
+  /** Set by Escape, and by opening a result. Cleared by editing the query. */
+  let dismissed = $state(false);
+  let activeIndex = $state(-1);
+
+  const LIST_ID = 'ark-search-results';
+  const optionId = (i: number) => `ark-search-option-${i}`;
+
+  /**
+   * How many result rows reach the DOM.
+   *
+   * A one-word query over the reference archive matches nearly all of it —
+   * "treasurer" returns 1396 of 1406 — and rendering a row each cost about
+   * 400ms to build a list nobody scrolls to the end of. The panel is height
+   * capped and scrolls internally, so rows past the cap were never going to
+   * be read; the honest thing is to render the best ones and say how many
+   * there are in total. Same convention as DocSearch and VS Code's search.
+   */
+  const MAX_ROWS = 50;
+  let visible = $derived(hits.slice(0, MAX_ROWS));
+  let capped = $derived(hits.length > visible.length);
+
+  // An empty query with no filters is not a search — nothing to float over the
+  // tree. `searching` is the app's own definition of that, reused rather than
+  // re-derived so the overlay and the result count can never disagree.
+  let open = $derived(searching && !dismissed && hits.length > 0);
+
+  // Any change to the query or filters is a fresh search: re-open an overlay
+  // Escape closed, and drop an active row that no longer refers to the same
+  // result. Reading these three keeps the effect subscribed to them.
+  $effect(() => {
+    search.query;
+    search.from;
+    search.to;
+    search.author;
+    search.includeTrashed;
+    dismissed = false;
+    activeIndex = -1;
+  });
+
+  function move(delta: number) {
+    if (visible.length === 0) return;
+    dismissed = false;
+    const next = activeIndex + delta;
+    // Wrap at both ends, so ArrowUp from the input goes straight to the last
+    // result the way every command palette does.
+    activeIndex = next < 0 ? visible.length - 1 : next >= visible.length ? 0 : next;
+  }
+
+  function choose(hit: SearchHit) {
+    onSelect(hit);
+    dismissed = true;
+    activeIndex = -1;
+  }
+
+  // Every one of these keys is handled without moving focus: the input keeps
+  // it for the whole interaction, and the active row is announced through
+  // aria-activedescendant instead. Losing focus to the list would mean the
+  // next keystroke no longer edits the query, which is the single most
+  // common thing to want next.
+  function onKeydown(event: KeyboardEvent) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      move(1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      move(-1);
+    } else if (event.key === 'Enter') {
+      if (activeIndex >= 0 && visible[activeIndex]) {
+        event.preventDefault();
+        choose(visible[activeIndex]);
+      }
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      dismissed = true;
+      activeIndex = -1;
+    }
+  }
+
+  // Dismiss on an outside click — but deliberately NOT on scroll. sl-popup
+  // repositions itself while scrolling, and closing instead would snatch the
+  // results away the moment someone scrolls the list they are reading.
+  $effect(() => {
+    if (!open) return;
+    const onDocumentPointerDown = (event: MouseEvent) => {
+      if (bar && !bar.contains(event.target as Node)) {
+        dismissed = true;
+        activeIndex = -1;
+      }
+    };
+    document.addEventListener('mousedown', onDocumentPointerDown, true);
+    return () => document.removeEventListener('mousedown', onDocumentPointerDown, true);
+  });
 </script>
 
-<div class="bar">
-  <input
-    type="search"
-    placeholder={'Search — "exact phrase", -exclude, OR'}
-    bind:value={search.query}
-  />
-  <button onclick={() => (showFilters = !showFilters)}>Filters</button>
-  <span class="count">{resultCount} result{resultCount === 1 ? '' : 's'}</span>
-</div>
+<!-- The popup anchors to this whole block — bar AND the filters row — not to
+     the input alone. Anchored to the input, the overlay dropped straight over
+     the filter controls the moment a query returned anything, so the author
+     and date filters could not be reached while results were showing. -->
+<div class="search" bind:this={bar}>
+  <div class="bar">
+    <input
+      bind:this={input}
+      type="search"
+      placeholder={'Search — "exact phrase", -exclude, OR'}
+      bind:value={search.query}
+      onkeydown={onKeydown}
+      onfocus={() => (dismissed = false)}
+      role="combobox"
+      aria-expanded={open}
+      aria-controls={LIST_ID}
+      aria-autocomplete="list"
+      aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
+      autocomplete="off"
+    />
+    <button class="filters-toggle" onclick={() => (showFilters = !showFilters)}>Filters</button>
+    <span class="count">{hits.length} result{hits.length === 1 ? '' : 's'}</span>
+  </div>
 
-{#if showFilters}
-  <div class="filters">
-    <label>From <input type="date" bind:value={search.from} /></label>
-    <label>To <input type="date" bind:value={search.to} /></label>
-    <div class="author-filter" role="group" aria-label="Filter by author">
-      <span class="filter-label">Author</span>
-      <div class="author-toggles">
-        <button
-          type="button"
-          class="anyone"
-          class:selected={search.author === null}
-          onclick={() => (search.author = null)}
-        >
-          Anyone
-        </button>
-        {#each authors as author (author.key)}
+  {#if showFilters}
+    <div class="filters">
+      <label>From <input type="date" bind:value={search.from} /></label>
+      <label>To <input type="date" bind:value={search.to} /></label>
+      <div class="author-filter" role="group" aria-label="Filter by author">
+        <span class="filter-label">Author</span>
+        <div class="author-toggles">
           <button
             type="button"
-            class="author-toggle"
-            class:selected={search.author === author.key}
-            aria-pressed={search.author === author.key}
-            aria-label="Filter by this author"
-            onclick={() => (search.author = search.author === author.key ? null : author.key)}
+            class="anyone"
+            class:selected={search.author === null}
+            onclick={() => (search.author = null)}
           >
-            <AgentAvatar agent={author.hash} size={22} />
+            Anyone
           </button>
-        {/each}
+          {#each authors as author (author.key)}
+            <button
+              type="button"
+              class="author-toggle"
+              class:selected={search.author === author.key}
+              aria-pressed={search.author === author.key}
+              aria-label="Filter by this author"
+              onclick={() => (search.author = search.author === author.key ? null : author.key)}
+            >
+              <AgentAvatar agent={author.hash} size={22} />
+            </button>
+          {/each}
+        </div>
       </div>
+      <label><input type="checkbox" bind:checked={search.includeTrashed} /> Include trashed</label>
     </div>
-    <label><input type="checkbox" bind:checked={search.includeTrashed} /> Include trashed</label>
-  </div>
-{/if}
+  {/if}
+
+  <!-- sync="width" makes the overlay exactly as wide as the search block, so
+       the KWIC snippets get the full width of the bar to be readable in.
+       auto-size="vertical" caps it against the viewport; the panel's own
+       max-height caps it against a very tall screen, and the list scrolls
+       inside itself either way. -->
+  <sl-popup
+    class="search-popup"
+    anchor={bar}
+    placement="bottom-start"
+    active={open}
+    sync="width"
+    auto-size="vertical"
+    auto-size-padding="12"
+    flip
+    shift
+    distance="2"
+  >
+    {#if open}
+      <div class="panel">
+        <div class="panel-head">
+          <span class="panel-count">
+            {hits.length} result{hits.length === 1 ? '' : 's'}{capped
+              ? `, showing the first ${visible.length}`
+              : ''}
+          </span>
+          <span class="panel-hint">↑↓ to move · Enter to open · Esc to close</span>
+        </div>
+        <SearchResults
+          hits={visible}
+          {activeIndex}
+          listId={LIST_ID}
+          {optionId}
+          {locationOf}
+          onSelect={choose}
+          onHover={(i) => (activeIndex = i)}
+        />
+      </div>
+    {/if}
+  </sl-popup>
+</div>
 
 <style>
-  .bar { display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem; }
-  .bar input[type='search'] { flex: 1; }
-  .count { opacity: 0.7; font-size: 0.9em; }
-  .filters { display: flex; gap: 1rem; align-items: flex-start; padding: 0 0.5rem 0.5rem; font-size: 0.9em; }
-  .author-filter { display: flex; flex-direction: column; gap: 0.25rem; }
-  .filter-label { opacity: 0.7; }
+  .search {
+    position: relative;
+    z-index: 1;
+  }
+  .bar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.5rem;
+  }
+  .bar input[type='search'] {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    font: inherit;
+    padding: 0.3rem 0.5rem;
+  }
+  .panel {
+    display: flex;
+    flex-direction: column;
+    /* auto-size caps this against the viewport; the panel's own max-height
+       caps it against a very tall screen, and the list scrolls inside itself
+       either way. */
+    max-height: min(60vh, 28rem);
+    overflow: hidden;
+    /*
+     * `position` is load-bearing, not cosmetic: `z-index` applies only to a
+     * POSITIONED element, so on the `position: static` this rule used to have,
+     * the `z-index: 10` below was inert and the panel painted in ordinary
+     * document order — which is what let tree rows show through and over the
+     * results.
+     */
+    position: relative;
+    z-index: 10;
+    /*
+     * Explicitly opaque on both branches. The previous fallback was `Canvas`,
+     * a SYSTEM colour whose value follows `color-scheme` and is not reliably
+     * the opaque white it looks like inside a Moss iframe. The token resolves
+     * to white from Shoelace's light theme, and `#fff` covers the case where
+     * the theme is somehow not in scope; neither can come out transparent.
+     * The panel must not inherit its opacity from whatever happens to be
+     * behind it.
+     */
+    background-color: var(--sl-color-neutral-0, #fff);
+    color: var(--sl-color-neutral-900, #18181b);
+    border: 1px solid rgba(128, 128, 128, 0.35);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  }
+  .panel-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8em;
+    opacity: 0.7;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+    flex: none;
+  }
+  .panel :global(.results) {
+    overflow-y: auto;
+  }
+  .count {
+    opacity: 0.7;
+    font-size: 0.9em;
+    white-space: nowrap;
+  }
+  .filters {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    padding: 0 0.5rem 0.5rem;
+    font-size: 0.9em;
+  }
+  .author-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .filter-label {
+    opacity: 0.7;
+  }
   .author-toggles {
     display: flex;
     flex-wrap: wrap;
@@ -76,7 +312,8 @@
     max-height: 3.5rem;
     overflow-y: auto;
   }
-  .author-toggles button, .anyone {
+  .author-toggles button,
+  .anyone {
     background: none;
     border: 1px solid transparent;
     border-radius: 4px;
@@ -84,8 +321,11 @@
     cursor: pointer;
     line-height: 1;
   }
-  .anyone { padding: 0.15rem 0.4rem; }
-  .author-toggles button.selected, .anyone.selected {
+  .anyone {
+    padding: 0.15rem 0.4rem;
+  }
+  .author-toggles button.selected,
+  .anyone.selected {
     border-color: currentColor;
     background: rgba(128, 128, 128, 0.15);
   }

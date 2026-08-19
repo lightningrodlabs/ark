@@ -179,6 +179,22 @@ export class DocumentStore {
       .map(([, doc]) => doc);
   }
 
+  /**
+   * Documents filed in exactly this folder, trashed ones excluded, newest
+   * first.
+   *
+   * The tree renders a folder's documents as its leaf children, and its
+   * sub-folders as its branch children, so it needs the documents filed
+   * DIRECTLY here — `inFolder` includes descendants, which in a tree would
+   * list every document again at every level above it.
+   */
+  directlyIn(folderId: string): DocumentSummary[] {
+    return [...this.byOriginal.entries()]
+      .filter(([k]) => !this.trashed.has(k) && this.filings.get(k) === folderId)
+      .map(([, doc]) => doc)
+      .sort((a, b) => (b.meta.date ?? '').localeCompare(a.meta.date ?? ''));
+  }
+
   counts(folders: Folder[]): Record<string, number> {
     const out: Record<string, number> = {};
     for (const folder of folders) out[folder.id] = this.inFolder(folder.id, folders).length;

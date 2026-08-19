@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { createRootFolder, createSubFolder, selectFolder } from './helpers';
+import { createRootFolder, createSubFolder, documentNode, selectFolder } from './helpers';
 
-// Bug: creating a document while "All documents" is selected filed it
-// nowhere, leaving the author to find it in the Unfiled bin and re-file it
-// by hand. DocumentEditor now carries a folder picker in create mode
-// (defaulting to the currently selected folder, required unless the archive
-// has no folders at all) so a document is filed correctly at creation time.
+// Bug: creating a document with no folder selected filed it nowhere, leaving
+// the author to find it in the Unfiled bin and re-file it by hand.
+// DocumentEditor now carries a folder picker in create mode (defaulting to
+// the folder selected in the tree, required unless the archive has no folders
+// at all) so a document is filed correctly at creation time.
 
 test('creating with a folder selected pre-fills that folder and files the document there', async ({
   page,
@@ -24,17 +24,17 @@ test('creating with a folder selected pre-fills that folder and files the docume
   await page.getByRole('button', { name: 'Add document' }).click();
 
   await selectFolder(page, 'Board Minutes');
-  await expect(
-    page.locator('.list-column').getByRole('button', { name: /January meeting/ }),
-  ).toBeVisible();
+  await expect(documentNode(page, 'January meeting')).toBeVisible();
   await expect(page.locator('section', { hasText: 'Unfiled' })).toHaveCount(0);
 });
 
-test('creating from "All documents" cannot be saved until a folder is chosen', async ({ page }) => {
+test('creating with no folder selected cannot be saved until a folder is chosen', async ({ page }) => {
   await page.goto('/harness/index.html');
   await createRootFolder(page, 'Board Minutes');
   await createSubFolder(page, 'Board Minutes', '2026');
-  // Stay on "All documents" (selectedFolder === null) — the reported case.
+  // createSubFolder leaves no folder SELECTED — it only opens the parent's
+  // menu — so selectedFolder is still null, the reported case. Nothing in the
+  // tree stands for "everything" any more, so this is the only empty state.
 
   await page.getByRole('button', { name: 'New document' }).click();
   const folderPicker = page.locator('select.folder-picker');
@@ -51,9 +51,7 @@ test('creating from "All documents" cannot be saved until a folder is chosen', a
 
   await addButton.click();
   await selectFolder(page, 'Board Minutes');
-  await expect(
-    page.locator('.list-column').getByRole('button', { name: /Unfiled by mistake/ }),
-  ).toBeVisible();
+  await expect(documentNode(page, 'Unfiled by mistake')).toBeVisible();
 });
 
 test('with no folders in the archive, creating still works and produces an unfiled document', async ({

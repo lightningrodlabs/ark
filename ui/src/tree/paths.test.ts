@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { descendantIds, folderPath } from './paths';
+import { descendantIds, folderPath, folderPathLabel } from './paths';
 import type { Folder } from '../types';
 
 const f = (id: string, name: string, parent: string | null = null): Folder => ({
@@ -49,5 +49,30 @@ describe('folderPath', () => {
   it('does not loop on a parent cycle', () => {
     const cyclic = [f('a', 'A', 'b'), f('b', 'B', 'a')];
     expect(folderPath(cyclic, 'a').length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('folderPathLabel', () => {
+  const folders = [
+    { id: 'a', name: 'Board Minutes', parent: null, order: 0, deleted: false },
+    { id: 'b', name: '2026', parent: 'a', order: 0, deleted: false },
+  ];
+
+  it('joins the ancestor chain root first', () => {
+    expect(folderPathLabel(folders, 'b')).toEqual('Board Minutes / 2026');
+  });
+
+  it('is just the name for a root folder', () => {
+    expect(folderPathLabel(folders, 'a')).toEqual('Board Minutes');
+  });
+
+  it('falls back for a null folder id', () => {
+    expect(folderPathLabel(folders, null)).toEqual('Unfiled');
+  });
+
+  // A document filed under a folder no head knows about any more still has to
+  // say something, rather than rendering an empty location.
+  it('falls back for a folder id nothing knows', () => {
+    expect(folderPathLabel(folders, 'ghost')).toEqual('Unfiled');
   });
 });

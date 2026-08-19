@@ -40,9 +40,10 @@
 
   // Create-mode-only folder picker. Amend never touches filing links (see
   // fix brief), so it is out of scope here and the picker is not shown for
-  // it. Defaults to the folder selected in the sidebar when the archive has
-  // folders at all; stays empty (forcing a choice) when "All documents" was
-  // selected — see canSaveDocument below for why the empty archive is exempt.
+  // it. Defaults to the folder selected in the tree when the archive has
+  // folders at all; stays empty, forcing a choice, when no folder is selected
+  // — the only empty case now that the tree shows real folders and nothing
+  // else. See canSaveDocument below for why the empty archive is exempt.
   let options = $derived(folderOptions(folders));
   let hasFolders = $derived(options.length > 0);
   // `''` (not null) so it binds cleanly to the <select>'s placeholder
