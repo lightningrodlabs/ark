@@ -88,6 +88,19 @@ describe('DocumentStore', () => {
     expect(store.byOriginal.get(key(hash(2)))!.body).toEqual('body 2');
   });
 
+  it('lists a trashed document in neither unfiled nor a deleted-folder bin', async () => {
+    const docs = [summary(1, 'Trashed and unfiled'), summary(2, 'Trashed and stranded')];
+    const filings: FolderFiling[] = [{ folder_id: 'gone', documents: [hash(2)] }];
+    const store = new DocumentStore(fakeArk(docs, filings, [hash(1), hash(2)]), 100);
+    await store.load(folders);
+
+    // Trash wins over every other state, so neither document may appear twice —
+    // a document listed in both trash and a bin cannot be reasoned about.
+    expect(store.unfiled()).toEqual([]);
+    expect(store.inDeletedFolders(folders)).toEqual([]);
+    expect(store.trashed.size).toEqual(2);
+  });
+
   it('patches state from signals without a full reload', async () => {
     const docs = [summary(1, 'One')];
     const ark = fakeArk(docs, [{ folder_id: 'root', documents: [hash(1)] }]);

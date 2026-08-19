@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { marked } from 'marked';
   import { encodeHashToBase64 } from '@holochain/client';
   import type { ArkClient } from '../ark-client';
   import type { DocumentSummary, DocumentVersion } from '../types';
+  import { renderMarkdown } from '../render';
   import VersionHistory from './VersionHistory.svelte';
 
   let {
@@ -19,11 +19,19 @@
 
   let versions = $state<DocumentVersion[]>([]);
 
+  // Generation guard: switching documents quickly leaves the earlier request in
+  // flight, and without this an older response can resolve last and paint the
+  // wrong document's history.
+  let generation = 0;
   $effect(() => {
-    ark.getDocumentVersions(doc.original).then((v) => (versions = v));
+    const mine = ++generation;
+    const original = doc.original;
+    ark.getDocumentVersions(original).then((v) => {
+      if (mine === generation) versions = v;
+    });
   });
 
-  let rendered = $derived(marked.parse(doc.body) as string);
+  let rendered = $derived(renderMarkdown(doc.body));
   let extraMeta = $derived(
     Object.entries(doc.meta).filter(([k]) => k !== 'title' && k !== 'date'),
   );
