@@ -30,9 +30,12 @@ export function mergeHeads(heads: TreeHead[]): Folder[] {
       if (beats) winner.set(folder.id, { folder, timestamp: head.timestamp, action });
     }
   }
+  // Fixed locale, not the peer's default: unicode collation varies by locale, so
+  // an unqualified localeCompare could order two folders differently on two
+  // machines. Display order is part of "every peer computes the same tree".
   return [...winner.values()]
     .map((w) => w.folder)
-    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, 'en'));
 }
 
 /**

@@ -35,7 +35,9 @@ export class TreeStore {
 
   async addFolder(name: string, parent: string | null = null): Promise<string> {
     const id = uuid();
-    const order = this.folders.filter((f) => f.parent === parent).length;
+    // Count live siblings only. Counting tombstones too would hand the new
+    // folder an `order` already taken by a visible one.
+    const order = this.live.filter((f) => f.parent === parent).length;
     await this.save([...this.folders, { id, name, parent, order, deleted: false }]);
     return id;
   }
