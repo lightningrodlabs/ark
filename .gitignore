@@ -11,3 +11,4 @@ ui/harness/__results__/
 test-results/
 ui/test-results/
 playwright-report/
+.kitsune2_bootstrap_srv
