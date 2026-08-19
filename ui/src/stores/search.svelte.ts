@@ -1,6 +1,6 @@
 import { ArkIndex, type SearchFilters, type SearchHit } from '../search/index';
 import type { DocumentStore } from './documents.svelte';
-import type { Folder } from '../types';
+import type { DocumentSummary, Folder } from '../types';
 
 /** Keeps one ArkIndex in step with the DocumentStore. */
 export class SearchStore {
@@ -22,6 +22,11 @@ export class SearchStore {
   sync(): void {
     this.index.setFilings(this.documents.filings);
     this.index.setTrashed(this.documents.trashed);
+  }
+
+  /** Re-index one document. Keeps callers out of `index` directly. */
+  upsert(doc: DocumentSummary): void {
+    this.index.upsert(doc);
   }
 
   run(folderId: string | null, folders: Folder[]): SearchHit[] {

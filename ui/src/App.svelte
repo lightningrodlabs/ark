@@ -82,7 +82,11 @@
   // ordinary folder-scoped document list.
   let searching = $derived(
     !!search &&
-      (search.query.trim() !== '' || !!search.from || !!search.to || !!search.author),
+      (search.query.trim() !== '' ||
+        !!search.from ||
+        !!search.to ||
+        !!search.author ||
+        search.includeTrashed),
   );
 
   let searchResults = $derived.by(() => {
@@ -118,7 +122,7 @@
     await store.refreshDocument(original);
     await store.refreshFilings();
     const doc = store.byOriginal.get(key(original)) ?? null;
-    if (doc) search?.index.upsert(doc);
+    if (doc) search?.upsert(doc);
     search?.sync();
     selectedDoc = doc;
     editing = null;

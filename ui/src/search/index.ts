@@ -78,6 +78,8 @@ export class ArkIndex {
     if (this.docs.has(id)) this.mini.discard(id);
     this.docs.delete(id);
     this.attachments.delete(id);
+    this.filings.delete(id);
+    this.trashed.delete(id);
   }
 
   setAttachmentText(original: ActionHash, name: string, text: string): void {
@@ -113,10 +115,20 @@ export class ArkIndex {
   search(raw: string, filters: SearchFilters): SearchHit[] {
     const parsed = parseQuery(raw);
 
-    // An empty query is a browse: filters alone, ordered by date descending.
+    // No positive terms is a browse: filters alone, ordered by date descending.
+    // Exclusions still apply — `-draft` on its own means "everything except
+    // drafts", and ignoring it here would silently return the whole archive.
     if (parsed.terms.length === 0 && parsed.phrases.length === 0) {
       return [...this.docs.entries()]
         .filter(([id, doc]) => this.passesFilters(id, doc, filters))
+        .filter(([id, doc]) => {
+          if (parsed.excluded.length === 0) return true;
+          const attachments = this.attachments.get(id) ?? [];
+          const haystack = [doc.meta.title ?? '', doc.body, ...attachments.map((a) => a.text)].join(
+            '\n',
+          );
+          return matchesParsed(haystack, parsed);
+        })
         .map(([, doc]) => ({
           doc,
           score: 0,

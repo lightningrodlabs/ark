@@ -103,6 +103,22 @@ describe('ArkIndex', () => {
     expect(makeIndex().search('repla', noFilters).length).toBeGreaterThan(0);
   });
 
+  it('applies an exclusion that is the whole query', () => {
+    // `-roof` alone means "everything except roof". Treating a term-less query
+    // as a plain browse would return the entire archive, exclusion ignored.
+    const titles = makeIndex()
+      .search('-roof', noFilters)
+      .map((h) => h.doc.meta.title);
+    expect(titles).toEqual(['Buildings and Land, March']);
+  });
+
+  it('combines a whole-query exclusion with a filter', () => {
+    const index = makeIndex();
+    index.setFilings(filings);
+    const hits = index.search('-roof', { ...noFilters, folderId: 'bl' });
+    expect(hits.map((h) => h.doc.meta.title)).toEqual(['Buildings and Land, March']);
+  });
+
   it('finds text inside an attachment and names it', () => {
     const index = makeIndex();
     index.setAttachmentText(hash(2), 'budget.csv', 'line item,amount\nwellhouse,4200\n');
