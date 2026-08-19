@@ -9,7 +9,7 @@ Status: approved, ready for implementation planning
 minutes, reports, decisions — into a folder structure, amends them when they
 need correcting, and searches the whole archive.
 
-It replaces what Drupal did for the reference corpus: 1406 meeting records across
+It replaces what Drupal did for the community it was built for: 1406 meeting records across
 13 committees, 2001–2026, 784,754 words, 5.1 MB of text, with 25 attached files.
 That corpus is the reference workload for every performance decision here.
 
@@ -57,7 +57,7 @@ stay cheap).
 
 **Bodies are markdown.** Pasted HTML is converted at the UI edge. Small,
 diffable between versions, indexable as-is, and the same format the existing
-reference corpus export already produced, so import is a straight copy. Rejected: sanitized
+the source export already produced, so import is a straight copy. Rejected: sanitized
 HTML canonical (higher paste fidelity, at the cost of a sanitizer on the write
 path, an HTML-aware differ and a strip-tags pass for search), and HTML plus a
 derived plaintext field (redundant field that can drift, bodies roughly double).
@@ -134,7 +134,7 @@ Deliberately minimal:
 - `Document` updates carry no author check — anyone may amend.
 - `meta` keys are not checked against any schema. Keys must be non-empty.
 - Size bounds: `body` at most 1 MiB, serialized `meta` at most 8 KiB. The largest
-  reference corpus body is about 10 KB, so neither is a practical constraint; they guard
+  reference document body is about 10 KB, so neither is a practical constraint; they guard
   against a base64 image being pasted into a body instead of attached, and keep
   every document well inside Holochain's 4 MB entry limit.
 - `Folder.id` values within one `FolderTree` must be unique.
@@ -319,7 +319,7 @@ it is unit-testable without a conductor.
 ### Loading
 
 `get_all_documents` in chunks of about 100, latest version of each, streamed into
-the store so the tree and search become usable while the rest arrives. At reference corpus
+the store so the tree and search become usable while the rest arrives. At full corpus
 scale that is 1406 records, roughly 5 MB, over the local websocket.
 
 No IndexedDB cache in the MVP. The performance test below measures cold load at
@@ -355,7 +355,7 @@ archives text edited elsewhere.
 
 The paste handler reads the `text/html` clipboard flavor and converts before
 insertion: unwrap the `docs-internal-guid` span, map Google Docs' inline-CSS
-weight and style spans to `**` and `*` (43% of the reference corpus corpus looks like this),
+weight and style spans to `**` and `*` (43% of the reference corpus looks like this),
 keep tables via GFM, drop the rest. Plain-text and markdown pastes pass through
 untouched. What lands in the textarea is markdown the author can see and correct
 before committing.
@@ -393,7 +393,7 @@ test first and is sized to one test-then-code cycle.
 - latest-version resolution and version ordering across a branched update graph
 - query parser: quoted phrases, `-term` and `NOT`, `OR`, prefix, and combinations
 - snippet generation and term marking
-- Google-Docs HTML → markdown, fixture-driven. `the reference corpus/minutes/html/`
+- Google-Docs HTML → markdown, fixture-driven. `$ARK_CORPUS_DIR/minutes/html/`
   holds 1406 real files covering the span-soup case, the plain-text-with-raw-`<p>`
   case and tables; a handful of representative files are copied in as fixtures
   rather than inventing HTML
@@ -419,7 +419,7 @@ Index build time and query latency at 1406 documents, against budgets: build
 under a few seconds, query under 100 ms. This answers the "do we need a cache"
 question with a number.
 
-The reference corpus corpus is a community's real minutes and does not belong in a public
+The reference corpus is a community's real minutes and does not belong in a public
 repo. The fixture is **generated** — synthetic text matching the real corpus in
 document count, body-length distribution and folder spread — with
 `ARK_CORPUS_DIR` to point the same test at the real corpus locally when the true
@@ -456,7 +456,7 @@ knows they were considered rather than missed:
   in ~250-300 ms against a 5000 ms budget, and answers each of five
   representative queries in under 15 ms against a 100 ms budget — both
   roughly an order of magnitude inside budget. Run locally against the real
-  reference corpus archive (1409 documents) the build takes ~550 ms, still comfortably
+  the reference corpus archive (1409 documents) the build takes ~550 ms, still comfortably
   inside budget. No cache is needed for the MVP; cold load at this scale is
   not a problem worth the added complexity.
 - **Roles and permissions.** Anyone in the group may do anything.

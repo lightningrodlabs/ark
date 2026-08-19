@@ -6,7 +6,7 @@ import { generateCorpus } from '../../scripts/generate-corpus';
 import { parseFrontMatter } from '../import/frontmatter';
 import type { DocumentSummary, Folder } from '../types';
 
-/** The reference workload: 1406 reference corpus meeting records, 784,754 words, ~5 MB. */
+/** The reference workload: 1406 meeting records, 784,754 words, ~5 MB. */
 const CORPUS_SIZE = 1406;
 const BUILD_BUDGET_MS = 5000;
 const QUERY_BUDGET_MS = 100;

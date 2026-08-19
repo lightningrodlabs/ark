@@ -55,7 +55,7 @@ the UI probably does.
 - The view layer never reaches into `search.index` directly — `SearchStore` has
   pass-throughs.
 - Production code must never import from `ui/harness/`.
-- Nothing from `~/code/the reference corpus/` may enter this repo, verbatim or
+- Nothing from the reference corpus may enter this repo, verbatim or
   redacted. Fixtures are invented content reproducing real markup shapes.
 
 ## Things that do not work inside Moss
