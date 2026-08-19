@@ -123,15 +123,13 @@ test('the close button is disabled while an import is actually running', async (
   await expect(close(page)).toBeDisabled();
   await expect(close(page)).toHaveAttribute('title', /import/i);
 
-  // The toolbar's "Close import" is the same close by another door, and has
-  // to be shut for the same reason.
-  await expect(page.locator('.toolbar button.import')).toBeDisabled();
+  // The header's × is the only close there is — the toolbar's duplicate is gone.
+  await expect(page.locator('.toolbar button.import')).toHaveCount(0);
 
   await page.evaluate(() => (window as any).__ARK_RELEASE__());
   await expect(page.locator('.pane-end .result')).toContainText('2 document(s) created');
-  // And once it has finished, closing is fine again — by either door.
+  // And once it has finished, closing is fine again.
   await expect(close(page)).toBeEnabled();
-  await expect(page.locator('.toolbar button.import')).toBeEnabled();
 });
 
 test('Escape closes an open document', async ({ page }) => {

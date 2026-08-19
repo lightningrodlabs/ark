@@ -294,18 +294,10 @@
     selectedDoc = null;
   }
 
-  // The toolbar's "Close import" is a second door onto the same close as the
-  // pane header's ×, so it goes through the same guard: closing an import
-  // that is mid-run would take the panel away while documents are still
-  // being written, whichever control was clicked.
-  function toggleImport() {
-    if (importing) closePane();
-    else openImport();
-  }
-
   // ImportPanel has already reloaded the document store and created any new
   // folders by the time onDone fires; only the search index needs rebuilding.
-  // Deliberately does not close the panel — see toggleImport.
+  // Deliberately does not close the panel: the summary of what was imported
+  // is worth reading, so the pane header's × is what dismisses it.
   function onImportDone() {
     search?.rebuild();
   }
@@ -537,16 +529,6 @@
           use:listen={{ click: () => (aboutOpen = true) }}
         ></sl-icon-button>
         <button class="new-doc" onclick={newDoc}>New document</button>
-        {#if importing}
-          <button
-            class="import"
-            onclick={toggleImport}
-            disabled={importRunning}
-            title={importRunning
-              ? 'This import is still writing documents — it will finish on its own.'
-              : 'Close import'}>Close import</button
-          >
-        {/if}
       </div>
       {#if search}
         <!-- `search?.highlightTerms()` below is optional only because the
@@ -736,8 +718,7 @@
     flex: 1;
     min-width: 0;
   }
-  .new-doc,
-  .import {
+  .new-doc {
     margin: 0;
     white-space: nowrap;
   }

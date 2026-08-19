@@ -36,8 +36,9 @@ test('Import is reached from the dialog, and has no toolbar button of its own', 
 
   await expect(page.getByRole('heading', { name: 'Import markdown' })).toBeVisible();
   await expect(page.locator('[data-testid="about-dialog"]')).not.toBeVisible();
-  // And the panel can still be closed the way it always could.
-  await expect(page.locator('.toolbar button.import')).toHaveText('Close import');
+  // The pane header's × is now the only way to close it.
+  await expect(page.locator('.toolbar button.import')).toHaveCount(0);
+  await expect(page.locator('[data-testid="pane-close"]')).toBeVisible();
 });
 
 test('Export writes a zip the browser can save, holding the archive', async ({ page }) => {
