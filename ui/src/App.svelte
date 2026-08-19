@@ -7,10 +7,12 @@
   import { appletServices } from './we';
   import { TreeStore } from './stores/tree.svelte';
   import { DocumentStore, key } from './stores/documents.svelte';
+  import type { ActionHash } from '@holochain/client';
   import type { DocumentSummary } from './types';
   import FolderTree from './lib/FolderTree.svelte';
   import DocumentList from './lib/DocumentList.svelte';
   import DocumentView from './lib/DocumentView.svelte';
+  import DocumentEditor from './lib/DocumentEditor.svelte';
 
   let ark: ArkClient | undefined = $state();
   let error: string | undefined = $state();
@@ -20,6 +22,7 @@
   let loaded = $state(0);
   let selectedFolder: string | null = $state(null);
   let selectedDoc: DocumentSummary | null = $state(null);
+  let editing: 'create' | 'amend' | null = $state(null);
 
   setContext(clientContext, { get ark() { return ark; } });
   setContext(storeContext, { get store() { return store; } });
@@ -61,11 +64,16 @@
   function selectFolder(id: string | null) {
     selectedFolder = id;
     selectedDoc = null;
+    editing = null;
   }
 
-  // Editing body/meta is Task 13's editor; this button is wired to it once
-  // that lands.
-  function amendDoc() {}
+  function newDoc() {
+    editing = 'create';
+  }
+
+  function amendDoc() {
+    editing = 'amend';
+  }
 
   async function trashDoc() {
     if (!ark || !store || !selectedDoc) return;
@@ -73,6 +81,13 @@
     await ark.trashDocument(original);
     await store.applySignal({ type: 'DocumentTrashed', original });
     selectedDoc = null;
+  }
+
+  async function onEditorDone(original: ActionHash) {
+    if (!store) return;
+    await store.refreshDocument(original);
+    selectedDoc = store.byOriginal.get(key(original)) ?? null;
+    editing = null;
   }
 </script>
 
@@ -93,12 +108,35 @@
         counts={store.counts(tree.live)}
         onSelect={selectFolder}
       />
-      <DocumentList
-        {documents}
-        selected={selectedDoc ? key(selectedDoc.original) : null}
-        onSelect={(doc) => (selectedDoc = doc)}
-      />
-      {#if selectedDoc}
+      <div class="list-column">
+        <button class="new-doc" onclick={newDoc}>New document</button>
+        <DocumentList
+          {documents}
+          selected={selectedDoc ? key(selectedDoc.original) : null}
+          onSelect={(doc) => {
+            selectedDoc = doc;
+            editing = null;
+          }}
+        />
+      </div>
+      {#if editing === 'create'}
+        <DocumentEditor
+          {ark}
+          mode="create"
+          folderId={selectedFolder}
+          onDone={onEditorDone}
+          onCancel={() => (editing = null)}
+        />
+      {:else if editing === 'amend' && selectedDoc}
+        <DocumentEditor
+          {ark}
+          mode="amend"
+          doc={selectedDoc}
+          folderId={selectedFolder}
+          onDone={onEditorDone}
+          onCancel={() => (editing = null)}
+        />
+      {:else if selectedDoc}
         <DocumentView doc={selectedDoc} {ark} onAmend={amendDoc} onTrash={trashDoc} />
       {:else}
         <p class="hint">Select a document.</p>
@@ -109,5 +147,7 @@
 
 <style>
   .layout { display: flex; }
+  .list-column { display: flex; flex-direction: column; }
+  .new-doc { margin: 0.5rem; }
   .hint { padding: 1rem; opacity: 0.6; }
 </style>
