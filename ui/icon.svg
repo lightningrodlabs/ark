@@ -1,0 +1,18 @@
+<!--
+  ark's applet icon: an archive box, the thing this tool is.
+
+  Drawn at 512 rather than scaled up from the 16px `archive` glyph in
+  src/shoelace.ts — a hairline stroke enlarged 32x reads as a smudge. Same
+  shape, redrawn with weight: a lid, a body, and the handle slot cut out of it.
+
+  Regenerate icon.png with:
+    inkscape -w 512 -h 512 icon.svg -o icon.png
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#26384a"/>
+  <g fill="#f4ece0">
+    <rect x="64" y="112" width="384" height="92" rx="24"/>
+    <path d="M96 232h320v152a48 48 0 0 1-48 48H144a48 48 0 0 1-48-48z"/>
+  </g>
+  <rect x="200" y="272" width="112" height="36" rx="18" fill="#26384a"/>
+</svg>
