@@ -56,6 +56,31 @@ export async function seedReferenceArchive(client: StubAppClient): Promise<void>
   }
 }
 
+/**
+ * A folder with two filed documents, for the "node has documents but not the
+ * folder structure" load-phase scenario. Callers pair this with
+ * `client.simulateStructurePending()` (see stub-client.ts) so the DNA state
+ * exists — folders and filing links — while `get_folder_tree` still reports
+ * `root_count: 1, heads: []`, exactly what a peer sees when a root link has
+ * gossiped in ahead of its `FolderTree` entry.
+ */
+export const PENDING_STRUCTURE_FOLDER = 'Finance Committee';
+export const PENDING_STRUCTURE_DOCS = ['January minutes', 'February minutes'];
+
+export async function seedPendingStructureArchive(client: StubAppClient): Promise<void> {
+  const folderId = 'finance-committee';
+  await call(client, 'update_folder_tree', {
+    folders: [{ id: folderId, name: PENDING_STRUCTURE_FOLDER, parent: null, order: 0, deleted: false }],
+  });
+  for (const [i, title] of PENDING_STRUCTURE_DOCS.entries()) {
+    await call(client, 'create_document', {
+      body: `Minutes of the ${title} meeting. The treasurer presented the budget and it was approved.`,
+      meta: { title, date: `2026-0${i + 1}-15` },
+      folder_id: folderId,
+    });
+  }
+}
+
 /** Fixed title/body the asset-view specs assert against. */
 export const ASSET_DOCUMENT_TITLE = 'Board Minutes';
 export const ASSET_DOCUMENT_BODY_TEXT = 'The treasurer presented the budget and it was approved.';

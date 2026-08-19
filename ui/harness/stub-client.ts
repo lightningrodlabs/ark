@@ -14,7 +14,7 @@
  * UI actually exercises.
  */
 import { encodeHashToBase64, type ActionHash, type AgentPubKey, type EntryHash } from '@holochain/client';
-import type { DocumentSummary, DocumentVersion, Folder, FolderFiling, GetAllOutput, Meta, TreeHead } from '../src/types';
+import type { DocumentSummary, DocumentVersion, Folder, FolderFiling, GetAllOutput, Meta, TreeSnapshot } from '../src/types';
 
 /** Minimal shape `ArkClient`/`SignalStore`/`App.svelte` actually use. */
 export interface StubAppClient {
@@ -29,6 +29,16 @@ export interface StubAppClient {
    * has no such field — nothing in `src/` reads it.
    */
   calls: string[];
+  /**
+   * Test-only seam for the "node has documents but not the folder structure"
+   * scenario: makes `get_folder_tree` report the root link without its tip
+   * (`{ root_count: 1, heads: [] }`) even though folders/filings already
+   * exist internally. No-op if `update_folder_tree` was never called — there
+   * is no root to withhold.
+   */
+  simulateStructurePending(): void;
+  /** Reverses `simulateStructurePending`, as a reconcile arriving would. */
+  resolveStructure(): void;
 }
 
 let counter = 0;
@@ -87,6 +97,15 @@ export function createStubClient(): StubAppClient {
   let treeExists = false;
   let treeAction: ActionHash = nextHash();
   let treeTimestamp = Date.now();
+  /**
+   * Test-only: simulates a root LINK that has arrived without its
+   * `FolderTree` entry — the DNA state `get_folder_tree` reports as
+   * `{ root_count: 1, heads: [] }`. Folders and filings already exist
+   * internally when this is set; only what `get_folder_tree` reveals is
+   * held back, mirroring a node that has a document's filing link but not
+   * yet the tree entry that would let it resolve which folder that is.
+   */
+  let structurePending = false;
 
   const key = (hash: ActionHash | EntryHash) => encodeHashToBase64(hash);
 
@@ -147,6 +166,15 @@ export function createStubClient(): StubAppClient {
       return { total, documents: docs };
     },
 
+    // Links only, mirroring get_document_hashes's real semantics (see
+    // document.rs) — every document the AllDocuments anchor knows about, with
+    // no entry resolved. DocumentStore.syncMissing is the one caller; without
+    // this handler a reconcile that takes the syncMissing path (any focus or
+    // timer tick once tree.structurePending is true, or once changedSince()
+    // trips) throws "unhandled zome fn" here and silently abandons the rest
+    // of that reconcile — including the filings reload that follows it.
+    get_document_hashes: (): ActionHash[] => [...documentOrder],
+
     amend_document: (input: { original: ActionHash; body: string; meta: Meta }): ActionHash => {
       const rec = documents.get(key(input.original));
       if (!rec) throw new Error('amend_document: no such document');
@@ -181,9 +209,10 @@ export function createStubClient(): StubAppClient {
       }));
     },
 
-    get_folder_tree: (): TreeHead[] => {
-      if (!treeExists) return [];
-      return [{ action: treeAction, timestamp: treeTimestamp, folders }];
+    get_folder_tree: (): TreeSnapshot => {
+      if (!treeExists) return { root_count: 0, heads: [] };
+      if (structurePending) return { root_count: 1, heads: [] };
+      return { root_count: 1, heads: [{ action: treeAction, timestamp: treeTimestamp, folders }] };
     },
 
     update_folder_tree: (input: { folders: Folder[] }): ActionHash => {
@@ -288,6 +317,12 @@ export function createStubClient(): StubAppClient {
       const handler = handlers[request.fn_name];
       if (!handler) throw new Error(`stub-client: unhandled zome fn "${request.fn_name}"`);
       return handler(request.payload);
+    },
+    simulateStructurePending() {
+      structurePending = true;
+    },
+    resolveStructure() {
+      structurePending = false;
     },
     on(_event, _cb) {
       // No peer ever pushes a remote signal in this single-agent stub — every

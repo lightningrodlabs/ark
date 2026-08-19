@@ -8,6 +8,7 @@ import App from '../src/App.svelte';
 import { createStubClient } from './stub-client';
 import {
   seedReferenceArchive,
+  seedPendingStructureArchive,
   seedAssetDocument,
   seedAssetDocumentWithTextAttachment,
   seedAssetDocumentWithImageAttachment,
@@ -25,6 +26,18 @@ const params = new URLSearchParams(location.search);
 if (params.get('seed') === 'archive') {
   await seedReferenceArchive(client);
 }
+
+// `?seed=pending-structure` seeds one folder with two documents filed in it,
+// then marks the tree's root link as arrived without its entry — the "node
+// has documents but not the folder structure" load-phase gap. Used by
+// pending-structure.spec.ts. `__ARK_RESOLVE_TREE__` lets a spec simulate the
+// entry gossiping in later, mirroring what a reconcile does in production.
+if (params.get('seed') === 'pending-structure') {
+  await seedPendingStructureArchive(client);
+  client.simulateStructurePending();
+}
+(window as unknown as { __ARK_RESOLVE_TREE__?: () => void }).__ARK_RESOLVE_TREE__ = () =>
+  client.resolveStructure();
 
 // `?asset=plain` or `?asset=rendered` seeds one known document directly
 // against the stub, then sets `__ARK_TEST_ASSET__` so App.svelte's onMount
