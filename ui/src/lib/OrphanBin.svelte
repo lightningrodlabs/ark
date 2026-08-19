@@ -9,12 +9,14 @@
     fromFolderId,
     folders,
     onRefile,
+    onOpen,
   }: {
     title: string;
     documents: DocumentSummary[];
     fromFolderId: string | null;
     folders: Folder[];
     onRefile: (original: ActionHash, from: string | null, to: string) => void;
+    onOpen: (doc: DocumentSummary) => void;
   } = $props();
 
   let destination = $state('');
@@ -76,7 +78,11 @@
   </div>
   <ul>
     {#each documents as doc (key(doc.original))}
-      <li>{doc.meta.title ?? '(untitled)'} <span class="date">{doc.meta.date ?? ''}</span></li>
+      <li>
+        <button class="doc" onclick={() => onOpen(doc)}>
+          {doc.meta.title ?? '(untitled)'} <span class="date">{doc.meta.date ?? ''}</span>
+        </button>
+      </li>
     {/each}
   </ul>
 </section>
@@ -85,4 +91,7 @@
   ul { list-style: none; padding: 0; }
   .count, .date { opacity: 0.6; font-size: 0.85em; }
   .bulk { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .doc { display: block; width: 100%; text-align: left; background: none; border: none;
+         padding: 0; margin: 0; cursor: pointer; font: inherit; color: inherit; }
+  .doc:hover { text-decoration: underline; }
 </style>

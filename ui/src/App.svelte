@@ -233,6 +233,11 @@
     editing = null;
   }
 
+  function openDoc(doc: DocumentSummary) {
+    selectedDoc = doc;
+    editing = null;
+  }
+
   let unfiledDocs = $derived(store ? store.unfiled() : []);
   let deletedBins = $derived(store && tree ? store.inDeletedFolders(tree.folders) : []);
   let trashList = $derived(store && tree ? trashEntries(store, tree.folders) : []);
@@ -283,6 +288,7 @@
               fromFolderId={null}
               folders={tree.live}
               onRefile={refileDoc}
+              onOpen={openDoc}
             />
           {/if}
           {#each deletedBins as bin (bin.folder.id)}
@@ -292,6 +298,7 @@
               fromFolderId={bin.folder.id}
               folders={tree.live}
               onRefile={refileDoc}
+              onOpen={openDoc}
             />
           {/each}
           <TrashView entries={trashList} onRestore={restoreDoc} onOpen={openTrashed} />
@@ -306,21 +313,12 @@
           <SearchBar {search} resultCount={searchResults.length} {authors} />
         {/if}
         {#if searching}
-          <SearchResults
-            hits={searchResults}
-            onSelect={(doc) => {
-              selectedDoc = doc;
-              editing = null;
-            }}
-          />
+          <SearchResults hits={searchResults} onSelect={openDoc} />
         {:else}
           <DocumentList
             {documents}
             selected={selectedDoc ? key(selectedDoc.original) : null}
-            onSelect={(doc) => {
-              selectedDoc = doc;
-              editing = null;
-            }}
+            onSelect={openDoc}
           />
         {/if}
       </div>
