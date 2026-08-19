@@ -3,6 +3,7 @@ use hdk::prelude::*;
 pub mod document;
 pub mod folder;
 pub mod resolve;
+pub mod trash;
 pub mod types;
 
 #[hdk_extern]

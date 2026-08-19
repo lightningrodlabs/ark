@@ -22,6 +22,7 @@ pub enum LinkTypes {
     AllDocuments,
     AllTrees,
     FolderToDocument,
+    TrashedDocuments,
 }
 
 #[hdk_extern]
