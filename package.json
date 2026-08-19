@@ -11,13 +11,13 @@
     "test": "npm run build:happ && npm t -w tests",
     "verify": "npm run test -w ui && npm run typecheck -w ui",
     "package": "npm run build:happ && npm run package -w ui && hc web-app pack workdir --recursive",
-    "applet-dev": "concurrently \"UI_PORT=8888 npm run start -w ui\" \"weave --agent-idx 1 --dev-config ./weave.dev.config.ts\" \"sleep 5 && weave --agent-idx 2 --dev-config ./weave.dev.config.ts --sync-time 6000\"",
-    "applet-dev-1": "concurrently \"UI_PORT=8888 npm run start -w ui\" \"weave --agent-idx 1 --dev-config ./weave.dev.config.ts\"",
-    "applet-dev-3": "concurrently \"UI_PORT=8888 npm run start -w ui\" \"weave --agent-idx 1 --dev-config ./weave.dev.config.ts\" \"sleep 5 && weave --agent-idx 2 --dev-config ./weave.dev.config.ts --sync-time 10000\" \"sleep 5 && weave --agent-idx 3 --dev-config ./weave.dev.config.ts --sync-time 10000\"",
+    "applet-dev": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"commonjs\"}' concurrently \"UI_PORT=8888 npm run start -w ui\" \"weave --agent-idx 1 --dev-config ./weave.dev.config.ts\" \"sleep 5 && weave --agent-idx 2 --dev-config ./weave.dev.config.ts --sync-time 6000\"",
+    "applet-dev-1": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"commonjs\"}' concurrently \"UI_PORT=8888 npm run start -w ui\" \"weave --agent-idx 1 --dev-config ./weave.dev.config.ts\"",
+    "applet-dev-3": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"commonjs\"}' concurrently \"UI_PORT=8888 npm run start -w ui\" \"weave --agent-idx 1 --dev-config ./weave.dev.config.ts\" \"sleep 5 && weave --agent-idx 2 --dev-config ./weave.dev.config.ts --sync-time 10000\" \"sleep 5 && weave --agent-idx 3 --dev-config ./weave.dev.config.ts --sync-time 10000\"",
     "launch:happ": "hc-spin --ui-port $UI_PORT -n $AGENTS workdir/ark.happ",
     "network": "hc s clean && npm run build:happ && UI_PORT=8888 concurrently \"npm start -w ui\" \"npm run launch:happ\"",
     "start": "AGENTS=2 npm run network",
-    "cli-help": "weave --help"
+    "cli-help": "TS_NODE_COMPILER_OPTIONS='{\"module\":\"commonjs\"}' weave --help"
   },
   "devDependencies": {
     "@holochain/hc-spin": "^0.700.0",
