@@ -7,6 +7,7 @@
   import type { SearchStore } from '../stores/search.svelte';
   import type { DocumentSummary, DocumentVersion } from '../types';
   import { renderMarkdown } from '../render';
+  import { applyHighlight } from '../search/highlight';
   import { weaveContext } from '../contexts';
   import VersionHistory from './VersionHistory.svelte';
   import Attachments from './Attachments.svelte';
@@ -16,6 +17,7 @@
     ark,
     files,
     search,
+    highlight = [],
     onAmend,
     onTrash,
   }: {
@@ -23,6 +25,9 @@
     ark: ArkClient;
     files: FileStorageClient;
     search: SearchStore;
+    /** Terms to mark in the body — set only when this document was opened
+     * from a search result, empty for every other route in. */
+    highlight?: string[];
     onAmend: () => void;
     onTrash: () => void;
   } = $props();
@@ -60,6 +65,20 @@
   });
 
   let rendered = $derived(renderMarkdown(doc.body));
+
+  let bodyEl: HTMLElement | undefined = $state();
+
+  // Mark the search terms over the rendered body. Ranges across the text
+  // nodes DOMPurify already sanitised — no markup is built here, so every
+  // byte inside {@html} still comes from renderMarkdown alone. The cleanup
+  // clears the marks when the terms change, the document changes, or this
+  // view goes away.
+  $effect(() => {
+    // Read to subscribe: a re-render replaces the text nodes the ranges point at.
+    rendered;
+    return applyHighlight(bodyEl, highlight);
+  });
+
   let extraMeta = $derived(
     Object.entries(doc.meta).filter(([k]) => k !== 'title' && k !== 'date'),
   );
@@ -82,7 +101,7 @@
       {/if}
     </div>
   </header>
-  <div class="body">{@html rendered}</div>
+  <div class="body" bind:this={bodyEl}>{@html rendered}</div>
   {#if versions.length > 1}
     <VersionHistory {versions} currentAction={encodeHashToBase64(doc.latest)} />
   {/if}

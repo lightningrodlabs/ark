@@ -34,3 +34,19 @@ body {
   color: #b00020;
   white-space: pre-wrap;
 }
+
+/*
+ * The in-document search highlight — the ranges registered by
+ * src/search/highlight.ts when a document is opened from a search result.
+ *
+ * Global rather than scoped to DocumentView because `::highlight()` names
+ * live in a document-wide registry, not in any one component's tree; Svelte
+ * has nothing to scope this to. The API only honours colour-ish properties
+ * here, so a highlight can never reflow the words it is pointing at — which
+ * is exactly the behaviour wanted. Amber on near-black reads as a marker
+ * pen rather than as a selection, and stays legible on the page's white.
+ */
+::highlight(ark-search) {
+  background-color: #ffdd66;
+  color: #1a1a1a;
+}

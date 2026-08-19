@@ -39,6 +39,11 @@
   let loaded = $state(0);
   let selectedFolder: string | null = $state(null);
   let selectedDoc: DocumentSummary | null = $state(null);
+  // The terms to mark inside the open document. Non-empty only when the
+  // document was reached from a search hit — a document opened from the tree
+  // shows no marks, and a highlight left over from a search three clicks ago
+  // is noise, so every other way of selecting a document clears it.
+  let docHighlight = $state<string[]>([]);
   let editing: 'create' | 'amend' | null = $state(null);
   let importing = $state(false);
   // Moss asset-rendering path (see onMount): a single document, read-only,
@@ -303,11 +308,14 @@
 
   function openTrashed(entry: TrashEntry) {
     selectedDoc = entry.doc;
+    docHighlight = [];
     editing = null;
   }
 
-  function openDoc(doc: DocumentSummary) {
+  /** `highlight` is passed only by the search bar — see docHighlight. */
+  function openDoc(doc: DocumentSummary, highlight: string[] = []) {
     selectedDoc = doc;
+    docHighlight = highlight;
     editing = null;
     importing = false;
   }
@@ -335,6 +343,7 @@
     if (doc) search?.upsert(doc);
     search?.sync();
     selectedDoc = doc;
+    docHighlight = [];
     editing = null;
   }
 </script>
@@ -392,6 +401,10 @@
         <button class="import" onclick={toggleImport}>{importing ? 'Close import' : 'Import'}</button>
       </div>
       {#if search}
+        <!-- `search?.highlightTerms()` below is optional only because the
+             narrowing from {#if search} does not follow into a callback —
+             there is no search bar to select a hit from before the store
+             exists. -->
         <div class="search-slot">
           <SearchBar
             {search}
@@ -401,7 +414,7 @@
             {authors}
             {selectedFolder}
             folders={tree.live}
-            onSelect={(hit) => openDoc(hit.doc)}
+            onSelect={(hit) => openDoc(hit.doc, search?.highlightTerms() ?? [])}
           />
         </div>
       {/if}
@@ -488,6 +501,7 @@
             {ark}
             {files}
             {search}
+            highlight={docHighlight}
             onAmend={amendDoc}
             onTrash={trashDoc}
           />
