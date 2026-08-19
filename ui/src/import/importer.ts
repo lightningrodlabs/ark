@@ -3,6 +3,7 @@ import type { FileStorageClient } from '@holochain-open-dev/file-storage';
 import type { ArkClient } from '../ark-client';
 import type { TreeStore } from '../stores/tree.svelte';
 import type { DocumentSummary, Folder } from '../types';
+import { folderPath as ancestorsOf } from '../tree/paths';
 import { parseFrontMatter } from './frontmatter';
 import { decodeAttachment, isIndexableText } from '../attachments/text';
 
@@ -15,7 +16,14 @@ export interface PlannedDoc {
   name: string;
   title: string;
   date: string;
-  folderName: string;
+  /**
+   * Where the document belongs, as a "/"-joined path from the root:
+   * "Finance and Legal/2014". A single segment — which is all a Drupal export's
+   * `committee:` key ever produces — is a root folder, exactly as before.
+   * ark's own export writes the full path as `folder:`, which is what lets a
+   * nested tree survive a round trip instead of being flattened.
+   */
+  folderPath: string;
   import_id: string;
   body: string;
   attachments: string[];
@@ -24,10 +32,47 @@ export interface PlannedDoc {
 export interface ImportPlan {
   create: PlannedDoc[];
   skipped: { name: string; import_id: string }[];
+  /** Folder PATHS that do not exist yet; runImport creates each segment. */
   newFolders: string[];
 }
 
 const UNFILED = 'Unfiled';
+
+/**
+ * Every live folder by its full path from the root. Path rather than bare
+ * name, because thirteen committees each have a "2014" and matching an import
+ * to whichever one happened to be first in the list would file it wrongly.
+ */
+function pathsOf(folders: Folder[]): Map<string, string> {
+  const live = folders.filter((f) => !f.deleted);
+  const byPath = new Map<string, string>();
+  for (const folder of live) {
+    byPath.set(
+      ancestorsOf(live, folder.id)
+        .map((f) => f.name)
+        .join('/'),
+      folder.id,
+    );
+  }
+  return byPath;
+}
+
+/**
+ * The folder a path names, if it already exists.
+ *
+ * A single-segment path also matches a folder of that name at ANY depth — the
+ * behaviour every `committee:`-based import has always had, kept so that
+ * re-importing a Drupal export into an archive whose committees were since
+ * tucked under a parent still lands where it did before.
+ */
+function resolvePath(byPath: Map<string, string>, path: string): string | undefined {
+  const exact = byPath.get(path);
+  if (exact || path.includes('/')) return exact;
+  for (const [known, id] of byPath) {
+    if (known === path || known.endsWith(`/${path}`)) return id;
+  }
+  return undefined;
+}
 
 /**
  * A dry run. Nothing is written until runImport is called with this plan, so
@@ -42,7 +87,7 @@ export function planImport(
   const known = new Set(
     existing.map((doc) => doc.meta.import_id).filter((id): id is string => Boolean(id)),
   );
-  const folderNames = new Set(folders.filter((f) => !f.deleted).map((f) => f.name));
+  const byPath = pathsOf(folders);
 
   const create: PlannedDoc[] = [];
   const skipped: { name: string; import_id: string }[] = [];
@@ -59,16 +104,17 @@ export function planImport(
     }
     seen.add(import_id);
 
-    const folderName = meta.committee || UNFILED;
-    if (!folderNames.has(folderName) && !newFolders.includes(folderName)) {
-      newFolders.push(folderName);
-    }
+    // `folder` is what ark's own export writes (a full path); `committee` is
+    // what the Drupal export carries (one root folder). Either way this is a
+    // path, and one with no separator is a root folder.
+    const path = meta.folder || meta.committee || UNFILED;
+    if (!resolvePath(byPath, path) && !newFolders.includes(path)) newFolders.push(path);
 
     create.push({
       name: file.name,
       title: meta.title || file.name.replace(/\.md$/i, ''),
       date: meta.meeting_date || meta.date || '',
-      folderName,
+      folderPath: path,
       import_id,
       body,
       attachments: (meta.attachments ?? '')
@@ -167,11 +213,24 @@ export async function runImport(
     onAttachmentText?: (original: ActionHash, name: string, text: string) => void;
   },
 ): Promise<{ created: number; attached: number; attachmentsFailed: string[] }> {
-  const idByName = new Map(
-    deps.folders.filter((f) => !f.deleted).map((f) => [f.name, f.id] as const),
-  );
-  for (const name of plan.newFolders) {
-    idByName.set(name, await deps.tree.addFolder(name, null));
+  const byPath = pathsOf(deps.folders);
+  // Each missing path is created a segment at a time, so importing into
+  // "Finance and Legal/2014" makes the year under the committee rather than a
+  // root folder whose name contains a slash.
+  for (const path of plan.newFolders) {
+    let parent: string | null = null;
+    let sofar = '';
+    for (const segment of path.split('/').filter(Boolean)) {
+      sofar = sofar ? `${sofar}/${segment}` : segment;
+      const existing = resolvePath(byPath, sofar);
+      if (existing) {
+        parent = existing;
+        continue;
+      }
+      const id: string = await deps.tree.addFolder(segment, parent);
+      byPath.set(sofar, id);
+      parent = id;
+    }
   }
 
   let created = 0;
@@ -185,7 +244,7 @@ export async function runImport(
         date: planned.date,
         import_id: planned.import_id,
       },
-      folder_id: idByName.get(planned.folderName) ?? null,
+      folder_id: resolvePath(byPath, planned.folderPath) ?? null,
     });
     created++;
 

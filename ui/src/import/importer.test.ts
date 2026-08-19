@@ -34,7 +34,7 @@ describe('planImport', () => {
   it('plans one document per file with folder, title and date mapped', () => {
     const plan = planImport([minutes(1802, 'Finance and Legal', '2026-08-12')], [], folders);
     expect(plan.create).toHaveLength(1);
-    expect(plan.create[0].folderName).toEqual('Finance and Legal');
+    expect(plan.create[0].folderPath).toEqual('Finance and Legal');
     expect(plan.create[0].date).toEqual('2026-08-12');
     expect(plan.create[0].import_id).toEqual('drupal:1802');
     expect(plan.create[0].body.trim()).toEqual('Body for 1802.');
@@ -89,6 +89,52 @@ describe('runImport', () => {
     expect(ark.createDocument.mock.calls[0][0].folder_id).toEqual('id-Community Life');
     expect(ark.createDocument.mock.calls[0][0].meta.import_id).toEqual('drupal:1');
     expect(result.created).toEqual(2);
+  });
+
+  it('creates a nested folder path a segment at a time, under the right parent', async () => {
+    const ark = { createDocument: vi.fn(async (_input: any) => new Uint8Array([9]) as any) };
+    const made: { name: string; parent: string | null }[] = [];
+    const tree = {
+      addFolder: vi.fn(async (name: string, parent: string | null) => {
+        made.push({ name, parent });
+        return `id-${name}`;
+      }),
+    };
+    // What ark's own export writes: a full path, not a bare committee name.
+    const exported = file(
+      'Finance and Legal/2014/Special meeting.md',
+      '---\ntitle: "Special meeting"\nfolder: "Finance and Legal/2014"\n---\nBody.\n',
+    );
+    const plan = planImport([exported], [], []);
+    expect(plan.newFolders).toEqual(['Finance and Legal/2014']);
+
+    await runImport(plan, { ark: ark as any, tree: tree as any, folders: [] });
+
+    expect(made).toEqual([
+      { name: 'Finance and Legal', parent: null },
+      { name: '2014', parent: 'id-Finance and Legal' },
+    ]);
+    expect(ark.createDocument.mock.calls[0][0].folder_id).toEqual('id-2014');
+  });
+
+  it('files into an existing nested folder rather than making a second one', async () => {
+    const ark = { createDocument: vi.fn(async (_input: any) => new Uint8Array([9]) as any) };
+    const tree = { addFolder: vi.fn() };
+    const nested: Folder[] = [
+      ...folders,
+      { id: 'y2014', name: '2014', parent: 'fnl', order: 0, deleted: false },
+    ];
+    const exported = file(
+      'Finance and Legal/2014/Special meeting.md',
+      '---\ntitle: "Special meeting"\nfolder: "Finance and Legal/2014"\n---\nBody.\n',
+    );
+    const plan = planImport([exported], [], nested);
+    expect(plan.newFolders).toEqual([]);
+
+    await runImport(plan, { ark: ark as any, tree: tree as any, folders: nested });
+
+    expect(tree.addFolder).not.toHaveBeenCalled();
+    expect(ark.createDocument.mock.calls[0][0].folder_id).toEqual('y2014');
   });
 
   it('indexes a text attachment during import, without waiting for a document to be opened', async () => {
