@@ -8,13 +8,8 @@ crate-type = ["cdylib", "rlib"]
 name = "ark"
 
 [dependencies]
+hdk = { workspace = true }
 holochain_serialized_bytes = { workspace = true }
 serde = { workspace = true }
-
-# hdk (and ark_integrity, which depends on hdi) pull in holochain_zome_types,
-# which uses an unstable std feature that only compiles under the wasm32 target
-# used by holonix's pinned toolchain. Scoping them to wasm32 lets `cargo test -p
-# ark --lib` build for the host target so pick_head keeps a plain unit test.
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-hdk = { workspace = true }
 ark_integrity = { workspace = true }
+ark_pick = { workspace = true }

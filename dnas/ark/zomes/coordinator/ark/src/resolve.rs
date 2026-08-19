@@ -1,6 +1,6 @@
 use hdk::prelude::*;
 
-use crate::pick::pick_head;
+use ark_pick::pick_head;
 
 /// Decode an app entry from a record, distinguishing "not there" from "there but
 /// unreadable". `.ok().flatten()` collapses those two into None, which in an

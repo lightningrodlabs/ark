@@ -5,7 +5,7 @@ opt-level = "z"
 opt-level = "z"
 
 [workspace]
-members = ["dnas/*/zomes/coordinator/*", "dnas/*/zomes/integrity/*"]
+members = ["crates/*", "dnas/*/zomes/coordinator/*", "dnas/*/zomes/integrity/*"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -19,3 +19,6 @@ path = "dnas/ark/zomes/coordinator/ark"
 
 [workspace.dependencies.ark_integrity]
 path = "dnas/ark/zomes/integrity/ark"
+
+[workspace.dependencies.ark_pick]
+path = "crates/pick"

@@ -16,6 +16,7 @@ name = "ark"
 version = "0.0.1"
 dependencies = [
  "ark_integrity",
+ "ark_pick",
  "hdk",
  "holochain_serialized_bytes",
  "serde",
@@ -29,6 +30,10 @@ dependencies = [
  "holochain_serialized_bytes",
  "serde",
 ]
+
+[[package]]
+name = "ark_pick"
+version = "0.0.1"
 
 [[package]]
 name = "arrayref"
