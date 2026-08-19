@@ -191,6 +191,56 @@ describe('DocumentStore', () => {
     expect(store.byOriginal.get(key(hash(9)))!.meta.title).toEqual('Nine');
   });
 
+  describe('changedSince', () => {
+    it('is false when the remote document total and trash count both match', async () => {
+      const docs = [summary(1, 'One'), summary(2, 'Two')];
+      const filings: FolderFiling[] = [{ folder_id: 'root', documents: [hash(1), hash(2)] }];
+      const ark = fakeArk(docs, filings, [hash(2)]);
+      const store = new DocumentStore(ark, 100);
+      await store.load(folders);
+
+      expect(await store.changedSince()).toBe(false);
+      // Cheap: a limit-0 call for the count, not a full page of documents.
+      expect(ark.getAllDocuments).toHaveBeenLastCalledWith(0, 0);
+    });
+
+    it('is true when a document was created remotely (total moves)', async () => {
+      const docs = [summary(1, 'One')];
+      const ark = fakeArk(docs, []);
+      const store = new DocumentStore(ark, 100);
+      await store.load(folders);
+
+      docs.push(summary(2, 'Two'));
+      expect(await store.changedSince()).toBe(true);
+    });
+
+    it('is true when the trash count moves, even if the total does not', async () => {
+      const docs = [summary(1, 'One'), summary(2, 'Two')];
+      const ark = fakeArk(docs, [], []);
+      const store = new DocumentStore(ark, 100);
+      await store.load(folders);
+
+      ark.getTrashed = async () => [hash(2)] as any;
+      expect(await store.changedSince()).toBe(true);
+    });
+
+    it('documents the known blind spot: a trash/restore swap that leaves the count unchanged', async () => {
+      // hash(2) is trashed, hash(1) is not. Between two checks, hash(2) is
+      // restored and hash(1) is trashed instead: no document was created (the
+      // total does not move) and the trash *count* is still 1 (only the
+      // *member* changed). changedSince has no way to see this with two
+      // counters — it is why the timer-triggered reconcile stays
+      // unconditional rather than relying on this check; see reconcile.ts.
+      const docs = [summary(1, 'One'), summary(2, 'Two')];
+      const ark = fakeArk(docs, [], [hash(2)]);
+      const store = new DocumentStore(ark, 100);
+      await store.load(folders);
+
+      ark.getTrashed = async () => [hash(1)] as any;
+      expect(await store.changedSince()).toBe(false);
+    });
+  });
+
   it('files a peer-created document into its folder without a reload', async () => {
     const docs = [summary(1, 'Mine')];
     const filings: FolderFiling[] = [{ folder_id: 'root', documents: [hash(1)] }];

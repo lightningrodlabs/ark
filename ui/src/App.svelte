@@ -11,6 +11,7 @@
   import { DocumentStore, key } from './stores/documents.svelte';
   import { SearchStore } from './stores/search.svelte';
   import { SignalStore } from './stores/signals.svelte';
+  import { reconcile } from './reconcile';
   import { trashEntries, type TrashEntry } from './stores/orphans';
   import type { ActionHash } from '@holochain/client';
   import type { DocumentSummary } from './types';
@@ -106,10 +107,8 @@
           }
           currentSearch.sync();
         },
-        async () => {
-          await currentTree.load();
-          await currentStore.load(currentTree.folders);
-          currentSearch.rebuild();
+        async (source) => {
+          await reconcile(source, { tree: currentTree, store: currentStore, search: currentSearch });
         },
       );
       // A folder add/rename/reparent/delete changes which folder ids exist,

@@ -33,7 +33,13 @@ export class SignalStore {
     private client: AppClient,
     private ark: ArkClient,
     private onSignal: (signal: ArkSignal) => void | Promise<void>,
-    private onReconcile: () => void | Promise<void>,
+    /**
+     * `source` distinguishes a focus-triggered call, which the callback is
+     * expected to make cheap (skip the full reload when nothing changed),
+     * from a timer-triggered one, which is the unconditional backstop — see
+     * `reconcile.ts`.
+     */
+    private onReconcile: (source: 'focus' | 'timer') => void | Promise<void>,
   ) {}
 
   start(): void {
@@ -45,7 +51,7 @@ export class SignalStore {
       }
     });
     window.addEventListener('focus', this.focusHandler);
-    this.timer = setInterval(() => void this.maybeReconcile(), RECONCILE_INTERVAL_MS);
+    this.timer = setInterval(() => void this.maybeReconcile('timer'), RECONCILE_INTERVAL_MS);
   }
 
   stop(): void {
@@ -54,20 +60,22 @@ export class SignalStore {
     if (this.timer) clearInterval(this.timer);
   }
 
-  private focusHandler = () => void this.maybeReconcile();
+  private focusHandler = () => void this.maybeReconcile('focus');
 
   /**
-   * Reconciling reloads the whole corpus and rebuilds the search index, which on
-   * a 1406-document archive is seconds of work. Focus fires every time someone
-   * switches tabs, and the timer can land moments after a focus already
-   * reconciled, so both routes share one floor.
+   * A full reload (reloads the whole corpus, rebuilds the search index) is
+   * seconds of work on a 1406-document archive, so `onReconcile` only pays
+   * that cost when it has to — see `reconcile.ts`. Focus fires every time
+   * someone switches tabs (inside Moss, every time the applet regains an
+   * iframe focus event), and the timer can land moments after a focus
+   * already reconciled, so both routes share one floor.
    */
   private lastReconcileAt = 0;
-  private async maybeReconcile(): Promise<void> {
+  private async maybeReconcile(source: 'focus' | 'timer'): Promise<void> {
     const now = Date.now();
     if (now - this.lastReconcileAt < RECONCILE_MIN_GAP_MS) return;
     this.lastReconcileAt = now;
-    await this.onReconcile();
+    await this.onReconcile(source);
   }
 
   /**

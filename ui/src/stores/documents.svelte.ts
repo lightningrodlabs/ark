@@ -86,6 +86,36 @@ export class DocumentStore {
     this.trashed = new Set((await this.ark.getTrashed()).map(key));
   }
 
+  /**
+   * Cheap backstop check for a focus-triggered reconcile: two small calls
+   * (`get_all_documents` with `limit: 0`, which returns just the anchor's
+   * link count, and `get_trashed`, which returns hashes with no document
+   * bodies) instead of pulling every document.
+   *
+   * Compared against `this.total` — the total recorded at the last full
+   * load — not against `byOriginal.size`. A peer that is permanently short a
+   * document or two (see `missing`) would otherwise see `byOriginal.size`
+   * stay below the remote total on every check and never get the fast path;
+   * comparing to the previously-recorded total means only a genuine new
+   * document trips it. The trash side mirrors this with `this.trashed.size`.
+   *
+   * This is a coarse signal, not a full diff: a document trashed and another
+   * restored in the same window can leave the trash *count* unchanged even
+   * though membership changed, and a create paired with a trash can (in
+   * pathological cases) do the same. That gap is intentional — see the
+   * unconditional timer-triggered reconcile in `reconcile.ts`, which exists
+   * specifically to catch what this check cannot.
+   */
+  async changedSince(): Promise<boolean> {
+    const [remote, trashed] = await Promise.all([
+      this.ark.getAllDocuments(0, 0),
+      this.ark.getTrashed(),
+    ]);
+    if (remote.total !== this.total) return true;
+    if (trashed.length !== this.trashed.size) return true;
+    return false;
+  }
+
   async refreshDocument(original: ActionHash): Promise<void> {
     const doc = await this.ark.getDocument(original);
     if (!doc) return;
