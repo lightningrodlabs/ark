@@ -107,4 +107,8 @@ export class ArkClient {
   notifyPeers(peers: AgentPubKey[], signal: ArkSignal): Promise<null> {
     return this.call('notify_peers', { peers, signal });
   }
+
+  whoami(): Promise<AgentPubKey> {
+    return this.call('whoami', null);
+  }
 }
