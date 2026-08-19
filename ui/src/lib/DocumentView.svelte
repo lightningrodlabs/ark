@@ -1,10 +1,13 @@
 <script lang="ts">
-  import { encodeHashToBase64 } from '@holochain/client';
+  import { getContext } from 'svelte';
+  import { encodeHashToBase64, type DnaHash } from '@holochain/client';
+  import type { WAL } from '@theweave/api';
   import type { FileStorageClient } from '@holochain-open-dev/file-storage';
   import type { ArkClient } from '../ark-client';
   import type { SearchStore } from '../stores/search.svelte';
   import type { DocumentSummary, DocumentVersion } from '../types';
   import { renderMarkdown } from '../render';
+  import { weaveContext } from '../contexts';
   import VersionHistory from './VersionHistory.svelte';
   import Attachments from './Attachments.svelte';
 
@@ -23,6 +26,24 @@
     onAmend: () => void;
     onTrash: () => void;
   } = $props();
+
+  // dnaHash is only ever set inside Moss (App.svelte fetches it once at
+  // startup via appInfo() — see the moss-assets dispatch brief), so its
+  // presence also gates whether the pocket controls render at all: outside
+  // Moss (hc-spin dev, the e2e harness) there is nowhere to add a WAL to.
+  const weave = getContext<{ dnaHash?: DnaHash; addToPocket?: (wal: WAL) => void } | undefined>(
+    weaveContext,
+  );
+
+  // The same document, addable to the pocket as two different WALs — see
+  // notebooks/ui/src/elements/markdown-note.ts for the pattern this mirrors.
+  // `hrl[1]` is the document's original create action, matching what every
+  // other link in this app targets and what `get_document`/`getAssetInfo`
+  // expect.
+  function addToPocket(context: WAL['context']) {
+    if (!weave?.dnaHash || !weave.addToPocket) return;
+    weave.addToPocket({ hrl: [weave.dnaHash, doc.original], context });
+  }
 
   let versions = $state<DocumentVersion[]>([]);
 
@@ -55,6 +76,10 @@
     <div class="actions">
       <button onclick={onAmend}>Amend</button>
       <button onclick={onTrash}>Trash</button>
+      {#if weave?.dnaHash}
+        <button onclick={() => addToPocket({})}>Add to pocket</button>
+        <button onclick={() => addToPocket({ view: 'rendered' })}>Add rendered view to pocket</button>
+      {/if}
     </div>
   </header>
   <div class="body">{@html rendered}</div>

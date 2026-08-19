@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount, setContext } from 'svelte';
-  import { AppWebsocket, encodeHashToBase64, type AppClient } from '@holochain/client';
-  import { WeaveClient, initializeHotReload, isWeaveContext } from '@theweave/api';
+  import { AppWebsocket, CellType, encodeHashToBase64, type AppClient, type DnaHash } from '@holochain/client';
+  import { WeaveClient, initializeHotReload, isWeaveContext, type WAL } from '@theweave/api';
   import { FileStorageClient } from '@holochain-open-dev/file-storage';
-  import { ArkClient } from './ark-client';
+  import { ArkClient, ROLE_NAME } from './ark-client';
   import { clientContext, storeContext, weaveContext } from './contexts';
   import { connectClient } from './connect';
   import { appletServices } from './we';
@@ -25,6 +25,7 @@
   import OrphanBin from './lib/OrphanBin.svelte';
   import TrashView from './lib/TrashView.svelte';
   import ImportPanel from './lib/ImportPanel.svelte';
+  import AssetView from './lib/AssetView.svelte';
 
   let ark: ArkClient | undefined = $state();
   let files: FileStorageClient | undefined = $state();
@@ -40,6 +41,16 @@
   let selectedDoc: DocumentSummary | null = $state(null);
   let editing: 'create' | 'amend' | null = $state(null);
   let importing = $state(false);
+  // Moss asset-rendering path (see onMount): a single document, read-only,
+  // with none of the tree/store/search/signals apparatus ever built. `null`
+  // means the document did not resolve (trashed, or not yet synced to this
+  // device) rather than an error.
+  let isAssetView = $state(false);
+  let assetDoc: DocumentSummary | null = $state(null);
+  // The ark cell's DNA hash, fetched once at startup — see the "Add to
+  // pocket" controls in DocumentView, which need it for every WAL's `hrl[0]`.
+  // Only ever set inside Moss; pocket controls are gated on its presence.
+  let dnaHash: DnaHash | undefined = $state();
 
   setContext(clientContext, { get ark() { return ark; } });
   setContext(storeContext, { get store() { return store; } });
@@ -53,6 +64,12 @@
         ? weaveClient.renderInfo.profilesClient
         : undefined;
     },
+    get dnaHash() {
+      return dnaHash;
+    },
+    addToPocket(wal: WAL) {
+      void weaveClient?.assets.assetToPocket(wal);
+    },
   });
 
   onMount(async () => {
@@ -64,6 +81,14 @@
       // taken and the connection logic below is unchanged.
       const testClient = (window as unknown as { __ARK_TEST_CLIENT__?: AppClient })
         .__ARK_TEST_CLIENT__;
+      // Test seam for the Moss asset-rendering path: the harness has no real
+      // weaveClient (see stub-client.ts), so it sets this instead of relying
+      // on `weaveClient.renderInfo.view.type === 'asset'` below.
+      const testAsset = (
+        window as unknown as {
+          __ARK_TEST_ASSET__?: { hash: ActionHash; context?: { view?: string } };
+        }
+      ).__ARK_TEST_ASSET__;
       if (testClient) {
         client = testClient;
       } else {
@@ -83,8 +108,31 @@
           connectWebsocket: () => AppWebsocket.connect({ defaultTimeout: 240000 }),
         });
       }
+
+      // Branch on the asset view BEFORE any store is built. TreeStore.load()
+      // and DocumentStore.load() fetch and index the whole corpus (1406
+      // documents in production) — exactly what rendering one document in a
+      // Moss pocket must not trigger. See the moss-assets dispatch brief.
+      const assetWal: WAL | undefined = testAsset
+        ? { hrl: [new Uint8Array(), testAsset.hash], context: testAsset.context }
+        : weaveClient?.renderInfo.type === 'applet-view' && weaveClient.renderInfo.view.type === 'asset'
+          ? weaveClient.renderInfo.view.wal
+          : undefined;
+      if (assetWal) {
+        ark = new ArkClient(client);
+        assetDoc = (await ark.getDocument(assetWal.hrl[1])) ?? null;
+        isAssetView = true;
+        return;
+      }
+
       ark = new ArkClient(client);
       files = new FileStorageClient(client, 'ark');
+      if (weaveClient) {
+        // Fetched once here, not per "Add to pocket" click — see DocumentView.
+        const info = await client.appInfo();
+        const cell = info?.cell_info[ROLE_NAME]?.find((c) => c.type === CellType.Provisioned);
+        if (cell?.type === CellType.Provisioned) dnaHash = cell.value.cell_id[0];
+      }
       tree = new TreeStore(ark);
       await tree.load();
       store = new DocumentStore(ark);
@@ -283,7 +331,9 @@
   <!-- No <h1>ark</h1>: Moss's own tool bar already names the applet directly
        above this iframe, so a second title only cost vertical space in a pane
        that is mostly a list. -->
-  {#if error}
+  {#if isAssetView}
+    <AssetView doc={assetDoc} />
+  {:else if error}
     <p class="error">{error}</p>
   {:else if !tree || !ark}
     <p>Connecting…</p>
