@@ -70,7 +70,19 @@ after shipping a broken button:
   OS browser. `blob:` URLs therefore go nowhere.
 - **`$state` values are Proxies** and cannot be structured-cloned across the
   iframe bridge. `ArkClient.call` strips them via `toPlain`; do not bypass it.
+- **A transparent background costs text its subpixel antialiasing**, which reads as a
+  fuzzy shadow outline on every glyph. It is not a `text-shadow` — searching the CSS
+  for one finds nothing. Give the app root an opaque background.
 - `confirm` and `alert` **do** work.
+
+## Shoelace notes
+
+- **Importing `themes/light.css` is load-bearing**, not cosmetic. Without it the `--sl-*`
+  custom properties are undefined and `sl-tree-item` labels collapse to zero height.
+- Icons are resolved from an inline data-URI resolver rather than the shipped asset
+  directory — 8.5 MB of SVGs we do not need. An e2e asserts no `.svg` is ever fetched.
+- `z-index` on a `position: static` element does nothing. If an overlay is painted under
+  its siblings, check `position` before reaching for a bigger number.
 
 If you need a browser capability, check it against this list first, and add to
 the list anything new you discover.
