@@ -93,7 +93,19 @@
           currentSearch.rebuild();
         },
       );
-      currentTree.onUpdate = (action) => void signals?.broadcast({ type: 'TreeUpdated', action });
+      // A folder add/rename/reparent/delete changes which folder ids exist,
+      // but DocumentStore.filings and its cached `lastFolders` (used by
+      // refreshFilings after a create/amend) are not otherwise told about it
+      // — nothing previously refreshed them for the *local* agent's own tree
+      // write (only a remote TreeUpdated signal, or the periodic reconcile,
+      // did). Without this, filing a new document into a folder created
+      // earlier in the same session queries get_filings with a folder id
+      // list that predates the folder, so the document's filing link is
+      // never read and it silently drops out of that folder's list.
+      currentTree.onUpdate = (action) => {
+        void currentStore.loadFilings(currentTree.folders);
+        void signals?.broadcast({ type: 'TreeUpdated', action });
+      };
       signals.start();
       await signals.refreshPeers(weaveClient, client.myPubKey);
       weaveClient?.onPeerStatusUpdate(() => {
