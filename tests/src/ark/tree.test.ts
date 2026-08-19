@@ -29,7 +29,7 @@ describe('folder tree', () => {
       expect(await call<TreeHead[]>(alice, 'get_folder_tree', null)).toHaveLength(0);
 
       await call(alice, 'update_folder_tree', {
-        folders: [folder('f1', 'Finance and Legal'), folder('f2', '2015-2019', 'f1')],
+        folders: [folder('f1', 'Budget and Records'), folder('f2', '2015-2019', 'f1')],
       });
       await dhtSync([alice, bob], arkCell(alice).cell_id[0]);
 

@@ -1,16 +1,20 @@
 import type { DocumentSummary } from '../src/types';
 
+// Invented names, not the community's actual committee structure — same count
+// and a similar name-length spread to the real list, which is what the perf
+// corpus needs (see generateCorpus below), but nothing here identifies the
+// organisation this tool was built for.
 const COMMITTEES = [
-  'Finance and Legal',
-  'Membership, Outreach and Promotion',
-  'Community Life',
-  'Buildings and Land',
-  'Monthly Meeting',
-  'Buildings',
-  'Land',
-  'Called Meeting',
-  'Emergency Response',
-  'QIVP',
+  'Budget and Records',
+  'Fellowship, Outreach and Growth',
+  'Community Care',
+  'Grounds and Property',
+  'Regular Gathering',
+  'Facilities',
+  'Trust',
+  'Special Session',
+  'Crisis Response',
+  'YFLC',
 ];
 
 const VOCABULARY = (
