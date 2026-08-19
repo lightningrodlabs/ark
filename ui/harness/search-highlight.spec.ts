@@ -119,3 +119,28 @@ test('a browser without CSS.highlights still opens the document', async ({ page 
   await expect(page.locator('article .body')).toContainText('treasurer');
   expect(errors).toEqual([]);
 });
+
+test('a highlight never spans a block boundary', async ({ page }) => {
+  // The unit tests build the DOM by hand; this one goes through the real
+  // pipeline — marked, DOMPurify, Chromium — because that is what decides
+  // where the blocks actually are.
+  //
+  // The body is raw HTML on purpose. Markdown bodies are mostly safe from
+  // this by accident: marked pretty-prints a newline between block tags, and
+  // that newline is itself a text node, so the concatenation gets a separator
+  // whether or not this code supplies one. Raw HTML in a body — which
+  // markdown permits and any member can write — has no such whitespace, and
+  // "well" + "pumped" then reads as one word that exists in neither
+  // paragraph.
+  await page.goto('/harness/index.html');
+  await createRootFolder(page, 'Finance');
+  await selectFolder(page, 'Finance');
+  await createDocument(page, {
+    title: 'Boundary minutes',
+    body: '<p>The pipeline ran well</p><p>pumped the water out.</p>',
+    date: '2026-03-05',
+  });
+
+  await openFirstHit(page, 'well');
+  await expect.poll(() => highlighted(page)).toEqual(['well']);
+});
