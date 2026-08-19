@@ -201,6 +201,12 @@
 </section>
 
 <style>
+  /* The pane itself has no padding — each occupant pads itself, the way
+     DocumentView's article does. Without this the panel sits flush against
+     the split-panel divider. */
+  section { padding: 0.5rem 1rem 1rem; max-width: 46rem; }
+  /* The heading's own top margin sat on top of the pane's padding. */
+  section > h3:first-child { margin-top: 0; }
   .summary, .result, .failed-list { list-style: none; padding: 0; }
   .failed { color: #b91c1c; font-weight: bold; }
   .warn { color: #92400e; }
