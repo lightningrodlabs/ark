@@ -62,6 +62,20 @@ pub struct TreeHead {
     pub folders: Vec<Folder>,
 }
 
+/// `get_folder_tree`'s full return: every resolvable head, alongside the
+/// number of root LINKS `tree_roots()` found. Root links and the `FolderTree`
+/// entries they point at gossip independently, so `heads` coming back short
+/// is ambiguous by itself — this pairs it with `root_count` so the caller can
+/// tell "the tree exists and has not arrived yet" (`root_count > heads.len()`)
+/// from "genuinely no folders" (`root_count == 0`), the same way
+/// `GetAllOutput.total` disambiguates a short document page from the end of
+/// the corpus.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TreeSnapshot {
+    pub root_count: usize,
+    pub heads: Vec<TreeHead>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MoveDocumentInput {
     pub original: ActionHash,

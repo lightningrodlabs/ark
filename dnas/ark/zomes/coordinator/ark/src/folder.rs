@@ -21,10 +21,19 @@ fn tree_roots() -> ExternResult<Vec<ActionHash>> {
 }
 
 /// EVERY tip of EVERY root, never a single winner. The UI unions them.
+///
+/// Returns `root_count` alongside the heads: root links (`tree_roots()`) and
+/// the `FolderTree` entries they point at gossip independently, so a peer can
+/// hold the link before the entry ever arrives. Without the count, zero heads
+/// is indistinguishable from "no folders were ever created" — with it, the
+/// caller can tell the two apart exactly rather than guessing from whether
+/// documents exist.
 #[hdk_extern]
-pub fn get_folder_tree(_: ()) -> ExternResult<Vec<TreeHead>> {
+pub fn get_folder_tree(_: ()) -> ExternResult<TreeSnapshot> {
+    let roots = tree_roots()?;
+    let root_count = roots.len();
     let mut heads = Vec::new();
-    for root in tree_roots()? {
+    for root in roots {
         for record in all_tips(root)? {
             let Some(tree) = decode_entry::<FolderTree>(&record, "FolderTree")? else {
                 continue;
@@ -36,7 +45,7 @@ pub fn get_folder_tree(_: ()) -> ExternResult<Vec<TreeHead>> {
             });
         }
     }
-    Ok(heads)
+    Ok(TreeSnapshot { root_count, heads })
 }
 
 /// Writes the merged folder list onto every current tip, so all tips carry
