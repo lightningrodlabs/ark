@@ -3,6 +3,7 @@
   import type { ArkClient } from '../ark-client';
   import type { DocumentStore } from '../stores/documents.svelte';
   import type { TreeStore } from '../stores/tree.svelte';
+  import type { SearchStore } from '../stores/search.svelte';
   import {
     matchAttachments,
     planImport,
@@ -17,12 +18,14 @@
     tree,
     store,
     fileStorage,
+    search,
     onDone,
   }: {
     ark: ArkClient;
     tree: TreeStore;
     store: DocumentStore;
     fileStorage: FileStorageClient;
+    search?: SearchStore;
     onDone: () => void;
   } = $props();
 
@@ -40,6 +43,7 @@
     attached: number;
     attachmentsFailed: string[];
     unmatched: AttachmentMatch['unmatched'];
+    error?: string;
   } | null>(null);
 
   const EMPTY_MATCH: AttachmentMatch = { byImportId: new Map(), unmatched: [] };
@@ -72,6 +76,7 @@
     const attachments = attachmentMatch.byImportId;
     const unmatched = attachmentMatch.unmatched;
     const skippedCount = plan.skipped.length;
+    let runError: string | undefined;
     try {
       // Import in slices so a large corpus reports progress rather than hanging.
       for (let i = 0; i < plan.create.length; i += 25) {
@@ -86,6 +91,7 @@
           folders: tree.folders,
           files: fileStorage,
           attachments,
+          onAttachmentText: (original, name, text) => search?.setAttachmentText(original, name, text),
         });
         created += result.created;
         attached += result.attached;
@@ -93,17 +99,39 @@
         progress = Math.min(i + 25, plan.create.length);
       }
       await store.load(tree.folders);
-      // Clear the plan (and the picked files) so the button cannot be pressed
-      // again without re-choosing — a stale plan re-run would re-create every
-      // document just imported, in the same session, before import_id-based
-      // dedup on the archive ever gets a chance to see them.
-      summary = { created, skipped: skippedCount, attached, attachmentsFailed, unmatched };
+    } catch (e) {
+      // A failure partway through must not be a silent unhandled rejection —
+      // report how much got created before it, and the error, so the user
+      // knows what happened rather than staring at a stuck progress bar.
+      runError = String(e);
+      // Best-effort: reflect whatever was actually created before the
+      // reload, but a second failure here must not mask the first, more
+      // informative one or leave the `finally` block from running.
+      try {
+        await store.load(tree.folders);
+      } catch {
+        // Reported via runError already; nothing more useful to say.
+      }
+    } finally {
+      summary = {
+        created,
+        skipped: skippedCount,
+        attached,
+        attachmentsFailed,
+        unmatched,
+        error: runError,
+      };
+      // Clear the plan (and the picked files) regardless of outcome, so a
+      // retry must re-pick and re-plan against current state. `plan` was
+      // computed against the pre-import snapshot; on a partial failure,
+      // pressing Import again with the stale plan would re-create every
+      // document already written before import_id-based dedup on the archive
+      // ever gets a chance to see them.
       plan = null;
       mdFiles = [];
       candidates = [];
-      onDone();
-    } finally {
       running = false;
+      onDone();
     }
   }
 </script>
@@ -141,6 +169,13 @@
   {/if}
 
   {#if summary}
+    {#if summary.error}
+      <p class="failed">
+        Import stopped after a failure, {summary.created} document(s) were created before it.
+        Re-choose the folder to retry — a fresh plan will skip what is already there.
+      </p>
+      <p class="failed">{summary.error}</p>
+    {/if}
     <ul class="result">
       <li>{summary.created} document(s) created</li>
       <li>{summary.skipped} already present, skipped</li>

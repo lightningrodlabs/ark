@@ -91,6 +91,67 @@ describe('runImport', () => {
     expect(result.created).toEqual(2);
   });
 
+  it('indexes a text attachment during import, without waiting for a document to be opened', async () => {
+    const ark = {
+      createDocument: vi.fn(async (_input: any) => new Uint8Array([9]) as any),
+      attachFile: vi.fn(async () => null),
+    };
+    const tree = { addFolder: vi.fn() };
+    const files = { uploadFile: vi.fn(async () => new Uint8Array([7]) as any) };
+    const plan = planImport(
+      [minutesWithAttachment(1, 'Finance and Legal', '2026-01-01', 'notes.txt')],
+      [],
+      folders,
+    );
+    const notes = new File(['budget notes here'], 'notes.txt', { type: 'text/plain' });
+    const attachments = new Map([[plan.create[0].import_id, [notes]]]);
+    const onAttachmentText = vi.fn();
+
+    await runImport(plan, {
+      ark: ark as any,
+      tree: tree as any,
+      folders,
+      files: files as any,
+      attachments,
+      onAttachmentText,
+    });
+
+    expect(ark.attachFile).toHaveBeenCalledTimes(1);
+    expect(onAttachmentText).toHaveBeenCalledTimes(1);
+    const [original, name, text] = onAttachmentText.mock.calls[0];
+    expect(original).toEqual(new Uint8Array([9]));
+    expect(name).toEqual('notes.txt');
+    expect(text).toEqual('budget notes here');
+  });
+
+  it('does not index a non-text attachment', async () => {
+    const ark = {
+      createDocument: vi.fn(async (_input: any) => new Uint8Array([9]) as any),
+      attachFile: vi.fn(async () => null),
+    };
+    const tree = { addFolder: vi.fn() };
+    const files = { uploadFile: vi.fn(async () => new Uint8Array([7]) as any) };
+    const plan = planImport(
+      [minutesWithAttachment(1, 'Finance and Legal', '2026-01-01', 'budget.pdf')],
+      [],
+      folders,
+    );
+    const budget = new File(['x'], 'budget.pdf', { type: 'application/pdf' });
+    const attachments = new Map([[plan.create[0].import_id, [budget]]]);
+    const onAttachmentText = vi.fn();
+
+    await runImport(plan, {
+      ark: ark as any,
+      tree: tree as any,
+      folders,
+      files: files as any,
+      attachments,
+      onAttachmentText,
+    });
+
+    expect(onAttachmentText).not.toHaveBeenCalled();
+  });
+
   it('writes nothing when everything was skipped', async () => {
     const ark = { createDocument: vi.fn() };
     const tree = { addFolder: vi.fn() };

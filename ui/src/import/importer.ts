@@ -1,8 +1,10 @@
+import type { ActionHash } from '@holochain/client';
 import type { FileStorageClient } from '@holochain-open-dev/file-storage';
 import type { ArkClient } from '../ark-client';
 import type { TreeStore } from '../stores/tree.svelte';
 import type { DocumentSummary, Folder } from '../types';
 import { parseFrontMatter } from './frontmatter';
+import { decodeAttachment, isIndexableText } from '../attachments/text';
 
 export interface ImportFile {
   name: string;
@@ -133,6 +135,20 @@ export function matchAttachments(
   return { byImportId, unmatched };
 }
 
+/**
+ * Read a File's bytes via FileReader rather than `File.arrayBuffer()` — the
+ * latter is unimplemented in some Blob polyfills (including this project's
+ * own jsdom test environment), while FileReader is universally supported.
+ */
+function readFileBytes(file: File): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 export async function runImport(
   plan: ImportPlan,
   deps: {
@@ -141,6 +157,14 @@ export async function runImport(
     folders: Folder[];
     files?: FileStorageClient;
     attachments?: Map<string, File[]>;
+    /**
+     * Called with a text attachment's decoded content as it is uploaded, so
+     * the search index picks it up during import rather than waiting for a
+     * human to open the document and trigger `Attachments.svelte`'s own
+     * indexing. Optional and narrow (not the SearchStore itself) so this
+     * module does not depend on the store.
+     */
+    onAttachmentText?: (original: ActionHash, name: string, text: string) => void;
   },
 ): Promise<{ created: number; attached: number; attachmentsFailed: string[] }> {
   const idByName = new Map(
@@ -174,6 +198,14 @@ export async function runImport(
         const hash = await deps.files!.uploadFile(file);
         await deps.ark.attachFile(original, hash);
         attached++;
+        // Index eagerly, right while the bytes are already in hand, instead
+        // of leaving attachment search dead until someone happens to open
+        // this document. Twenty-five files (one import slice) is trivial to
+        // do eagerly.
+        if (deps.onAttachmentText && isIndexableText(file.name, file.type)) {
+          const bytes = await readFileBytes(file);
+          deps.onAttachmentText(original, file.name, decodeAttachment(bytes));
+        }
       } catch (e) {
         attachmentsFailed.push(`${planned.title}: ${file.name} (${e})`);
       }

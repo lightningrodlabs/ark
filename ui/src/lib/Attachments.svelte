@@ -64,7 +64,14 @@
     try {
       const hash = await files.uploadFile(file);
       await ark.attachFile(original, hash);
-      await refresh(original, generation);
+      // Claim a fresh generation rather than passing the current value: if the
+      // user has switched documents mid-upload, `generation` has already
+      // moved on, and reusing it would let this stale refresh pass the
+      // `mine !== generation` guard and call `onIndexed` bound to the new,
+      // live `doc.original` — attributing the old document's attachment text
+      // to the wrong document in the index.
+      const mine = ++generation;
+      await refresh(original, mine);
     } finally {
       busy = false;
       input.value = '';
@@ -72,14 +79,21 @@
   }
 
   async function detach(hash: EntryHash) {
-    const original = doc.original;
-    const detached = attached.find((f) => f.hash === hash);
-    await ark.detachFile(original, hash);
-    // Drop its text from the index as well, or the file stays searchable under
-    // a document that no longer has it — a hit reading "in attachment
-    // budget.csv" pointing at an attachment that is gone.
-    if (detached) onUnindexed(detached.name);
-    await refresh(original, generation);
+    if (busy) return;
+    busy = true;
+    try {
+      const original = doc.original;
+      const detached = attached.find((f) => f.hash === hash);
+      await ark.detachFile(original, hash);
+      // Drop its text from the index as well, or the file stays searchable
+      // under a document that no longer has it — a hit reading "in
+      // attachment budget.csv" pointing at an attachment that is gone.
+      if (detached) onUnindexed(detached.name);
+      const mine = ++generation;
+      await refresh(original, mine);
+    } finally {
+      busy = false;
+    }
   }
 </script>
 
@@ -98,7 +112,7 @@
         </button>
         <span class="size">{Math.ceil(file.size / 1024)} KB</span>
         {#if !isIndexableText(file.name, file.type)}<span class="note">not searched</span>{/if}
-        <button onclick={() => detach(file.hash)}>Remove</button>
+        <button onclick={() => detach(file.hash)} disabled={busy}>Remove</button>
       </li>
     {/each}
   </ul>

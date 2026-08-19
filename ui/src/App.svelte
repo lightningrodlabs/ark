@@ -174,19 +174,27 @@
   async function trashDoc() {
     if (!ark || !store || !selectedDoc) return;
     const original = selectedDoc.original;
-    await ark.trashDocument(original);
-    await store.applySignal({ type: 'DocumentTrashed', original });
-    await signals?.broadcast({ type: 'DocumentTrashed', original });
-    search?.sync();
-    selectedDoc = null;
+    try {
+      await ark.trashDocument(original);
+      await store.applySignal({ type: 'DocumentTrashed', original });
+      await signals?.broadcast({ type: 'DocumentTrashed', original });
+      search?.sync();
+      selectedDoc = null;
+    } catch (e) {
+      alert(`Could not move this document to the trash.\n\n${e}`);
+    }
   }
 
   async function restoreDoc(original: ActionHash) {
     if (!ark || !store) return;
-    await ark.restoreDocument(original);
-    await store.applySignal({ type: 'DocumentRestored', original });
-    await signals?.broadcast({ type: 'DocumentRestored', original });
-    search?.sync();
+    try {
+      await ark.restoreDocument(original);
+      await store.applySignal({ type: 'DocumentRestored', original });
+      await signals?.broadcast({ type: 'DocumentRestored', original });
+      search?.sync();
+    } catch (e) {
+      alert(`Could not restore this document from the trash.\n\n${e}`);
+    }
   }
 
   // Used both for the Unfiled bin (from = null) and each deleted-folder bin.
@@ -297,7 +305,7 @@
         {/if}
       </div>
       {#if importing && ark && store && files}
-        <ImportPanel {ark} {tree} {store} fileStorage={files} onDone={onImportDone} />
+        <ImportPanel {ark} {tree} {store} fileStorage={files} {search} onDone={onImportDone} />
       {:else if editing === 'create'}
         <DocumentEditor
           {ark}
