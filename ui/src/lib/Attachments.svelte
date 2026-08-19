@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import type { EntryHash } from '@holochain/client';
   import { encodeHashToBase64 } from '@holochain/client';
   import type { FileStorageClient } from '@holochain-open-dev/file-storage';
   import type { ArkClient } from '../ark-client';
   import type { DocumentSummary } from '../types';
   import { decodeAttachment, isIndexableText } from '../attachments/text';
+  import { previewMode, type PreviewMode } from '../attachments/preview';
 
   let {
     ark,
@@ -22,6 +24,66 @@
 
   let attached = $state<{ hash: EntryHash; name: string; type: string; size: number }[]>([]);
   let busy = $state(false);
+
+  // Inline preview state — a toggle, not a permanent expansion: at most one
+  // attachment's preview is open at a time, keyed by its base64 hash.
+  let previewKey = $state<string | null>(null);
+  let previewKind = $state<PreviewMode | null>(null);
+  let previewText = $state<string | null>(null);
+  let previewUrl = $state<string | null>(null);
+  let previewGeneration = 0;
+
+  function closePreview() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewKey = null;
+    previewKind = null;
+    previewText = null;
+    previewUrl = null;
+  }
+
+  onDestroy(closePreview);
+
+  async function togglePreview(file: { hash: EntryHash; name: string; type: string }) {
+    const k = encodeHashToBase64(file.hash);
+    if (previewKey === k) {
+      closePreview();
+      return;
+    }
+    // Claim a generation before the await so a second click (on this file or
+    // another) while the download is in flight leaves this call's result
+    // discarded rather than clobbering whatever the newer click set up.
+    const mine = ++previewGeneration;
+    const mode = previewMode(file.name, file.type);
+    const blob = await files.downloadFile(file.hash);
+    if (mine !== previewGeneration) return;
+    closePreview();
+    if (mode === 'text') {
+      previewText = decodeAttachment(new Uint8Array(await blob.arrayBuffer()));
+      if (mine !== previewGeneration) return;
+    } else if (mode === 'image') {
+      previewUrl = URL.createObjectURL(blob);
+    }
+    previewKind = mode;
+    previewKey = k;
+  }
+
+  // Programmatic <a download> click, not window.open — Moss denies every
+  // window.open call that isn't http(s):// or a weave deep link (see
+  // docs/dev/fix-brief-template.md), which is why the old button did nothing.
+  async function download(file: { hash: EntryHash; name: string }) {
+    const blob = await files.downloadFile(file.hash);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoke once the click has handed the URL to the browser's download
+    // machinery rather than mid-click, which can cut a save off before it
+    // starts in some browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 
   // Generation guard: switching documents quickly leaves an earlier refresh in
   // flight, and without this a late-resolving fetch could paint the wrong
@@ -53,6 +115,9 @@
   $effect(() => {
     const mine = ++generation;
     const original = doc.original;
+    // A preview open for the previous document's attachment makes no sense
+    // once that document is no longer showing.
+    closePreview();
     refresh(original, mine);
   });
 
@@ -86,6 +151,7 @@
     busy = true;
     try {
       const detached = attached.find((f) => f.hash === hash);
+      if (previewKey === encodeHashToBase64(hash)) closePreview();
       await ark.detachFile(original, hash);
       // Drop its text from the index as well, or the file stays searchable
       // under a document that no longer has it — a hit reading "in
@@ -105,18 +171,32 @@
   <h3>Attachments</h3>
   <ul>
     {#each attached as file (encodeHashToBase64(file.hash))}
+      {@const key = encodeHashToBase64(file.hash)}
+      {@const mode = previewMode(file.name, file.type)}
       <li>
-        <button onclick={async () => {
-          const url = URL.createObjectURL(await files.downloadFile(file.hash));
-          window.open(url);
-          // The tab has the blob by now; holding the URL only leaks it.
-          setTimeout(() => URL.revokeObjectURL(url), 60_000);
-        }}>
-          {file.name}
-        </button>
-        <span class="size">{Math.ceil(file.size / 1024)} KB</span>
-        {#if !isIndexableText(file.name, file.type)}<span class="note">not searched</span>{/if}
-        <button onclick={() => detach(file.hash)} disabled={busy}>Remove</button>
+        <div class="row">
+          <span class="name">{file.name}</span>
+          <span class="size">{Math.ceil(file.size / 1024)} KB</span>
+          {#if !isIndexableText(file.name, file.type)}<span class="note">not searched</span>{/if}
+          {#if mode !== 'none'}
+            <button onclick={() => togglePreview(file)}>
+              {previewKey === key ? 'Hide preview' : 'Preview'}
+            </button>
+          {:else}
+            <span class="note">cannot be previewed</span>
+          {/if}
+          <button onclick={() => download(file)}>Download</button>
+          <button onclick={() => detach(file.hash)} disabled={busy}>Remove</button>
+        </div>
+        {#if previewKey === key}
+          <div class="preview">
+            {#if previewKind === 'text'}
+              <pre>{previewText}</pre>
+            {:else if previewKind === 'image'}
+              <img src={previewUrl} alt={file.name} />
+            {/if}
+          </div>
+        {/if}
       </li>
     {/each}
   </ul>
@@ -125,6 +205,10 @@
 
 <style>
   ul { list-style: none; padding: 0; }
-  li { display: flex; gap: 0.5rem; align-items: baseline; }
+  li { display: flex; flex-direction: column; gap: 0.25rem; }
+  .row { display: flex; gap: 0.5rem; align-items: baseline; }
   .size, .note { opacity: 0.6; font-size: 0.85em; }
+  .preview { max-width: 100%; }
+  .preview pre { max-height: 16rem; overflow: auto; background: rgba(128, 128, 128, 0.1); padding: 0.5rem; }
+  .preview img { max-width: 100%; max-height: 20rem; }
 </style>
