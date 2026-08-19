@@ -31,16 +31,31 @@
     const plan = planFolderDeletion(tree.folders, filings, id);
     const target = tree.folders.find((f) => f.id === id);
     const destination = target?.parent
-      ? tree.folders.find((f) => f.id === target.parent)?.name
+      ? (tree.folders.find((f) => f.id === target.parent)?.name ?? 'its parent folder')
       : 'Unfiled';
-    if (plan.moves.length) {
-      const ok = confirm(
-        `${plan.moves.length} document(s) are in this folder. Move them to ${destination} and delete it?`,
-      );
-      if (!ok) return;
-    }
-    for (const move of plan.moves) {
-      await ark.moveDocument({ original: move.original, from: move.from, to: move.to });
+
+    // Always confirm. There is no undo for a folder in the MVP — deletion is a
+    // tombstone with no restore path in the UI — so a misclick beside Rename
+    // would be unrecoverable even though the documents themselves survive.
+    const subtree = plan.tombstone.length > 1 ? ' and its sub-folders' : '';
+    const ok = plan.moves.length
+      ? confirm(
+          `${plan.moves.length} document(s) are in this folder${subtree}. ` +
+            `Move them to ${destination} and delete it?`,
+        )
+      : confirm(`Delete this empty folder${subtree}?`);
+    if (!ok) return;
+
+    // Relocate before tombstoning, and stop on the first failure rather than
+    // pressing on: a half-moved folder that then vanishes would strand the rest
+    // of its documents with nothing on screen to explain it.
+    try {
+      for (const move of plan.moves) {
+        await ark.moveDocument({ original: move.original, from: move.from, to: move.to });
+      }
+    } catch (e) {
+      alert(`Could not move the documents out of this folder, so it was not deleted.\n\n${e}`);
+      return;
     }
     await tree.deleteFolder(id);
     if (selected === id) onSelect(null);
