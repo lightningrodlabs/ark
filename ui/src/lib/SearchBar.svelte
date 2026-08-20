@@ -2,7 +2,7 @@
   import '../shoelace';
   import type { AgentPubKey } from '@holochain/client';
   import type { SearchStore } from '../stores/search.svelte';
-  import type { SearchHit } from '../search/index';
+  import type { NearMatch, SearchHit } from '../search/index';
   import type { Folder } from '../types';
   import { folderPathLabel } from '../tree/paths';
   import AgentAvatar from './AgentAvatar.svelte';
@@ -11,6 +11,7 @@
   let {
     search,
     hits,
+    nearMatch,
     searching,
     loading = false,
     loaded = 0,
@@ -23,6 +24,13 @@
   }: {
     search: SearchStore;
     hits: SearchHit[];
+    /**
+     * Set when these hits came from the near-match fallback rather than from
+     * the query itself. The panel then says so, naming the terms that
+     * actually matched. Results the user did not ask for, presented as if
+     * they were, is the bug this prop exists to make impossible.
+     */
+    nearMatch: NearMatch | null;
     /** Whether a query or filter is in play at all. */
     searching: boolean;
     /**
@@ -183,6 +191,7 @@
       search.to,
       search.author,
       search.includeTrashed,
+      search.nearMatches,
       search.folderScope?.id ?? null,
     ];
   }
@@ -378,7 +387,16 @@
           {/each}
         </div>
       </div>
-      <label><input type="checkbox" bind:checked={search.includeTrashed} /> Include trashed</label>
+      <div class="switches">
+        <label><input type="checkbox" bind:checked={search.includeTrashed} /> Include trashed</label>
+        <!-- On by default. The fallback only fires when the exact search
+             found nothing, so it costs an ordinary query nothing; off is for
+             someone who wants a plain "no results" rather than a guess. -->
+        <label>
+          <input type="checkbox" bind:checked={search.nearMatches} />
+          Near matches when nothing matches exactly
+        </label>
+      </div>
     </div>
   {/if}
 
@@ -429,6 +447,17 @@
                way out, rather than looking exactly like "no matches anywhere",
                which is a milder form of the bug this whole feature exists to
                fix. -->
+          <!-- Near matches never arrive unannounced. The rows below matched
+               words the user did not type, so the panel names both: what was
+               asked for, and what was found instead. -->
+          {#if nearMatch}
+            <p class="near-match" data-testid="near-match">
+              No results for “{nearMatch.query.join(' ')}” — showing {hits.length} near match{hits.length ===
+              1
+                ? ''
+                : 'es'} for “{nearMatch.terms.join('”, “')}”.
+            </p>
+          {/if}
           {#if hits.length === 0 && unscopedFallbackCount > 0}
             <p class="scope-empty">
               No results in {search.folderScope?.label}. {unscopedFallbackCount} found in the whole
@@ -545,6 +574,14 @@
     cursor: pointer;
     font: inherit;
   }
+  .near-match {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85em;
+    background: rgba(250, 220, 90, 0.18);
+    border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+    flex: none;
+  }
   .scope-empty {
     margin: 0;
     padding: 0.5rem 0.75rem;
@@ -641,6 +678,11 @@
     align-items: flex-start;
     padding: 0 0.5rem 0.5rem;
     font-size: 0.9em;
+  }
+  .switches {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
   }
   .author-filter {
     display: flex;

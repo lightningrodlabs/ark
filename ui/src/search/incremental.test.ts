@@ -54,6 +54,7 @@ const baseFilters: SearchFilters = {
   to: null,
   author: null,
   includeTrashed: false,
+  nearMatches: true,
 };
 
 const queries = [
@@ -146,8 +147,8 @@ describe('an incrementally built index equals a rebuilt one', () => {
   const compare = (built: ArkIndex, filters: SearchFilters, label: string) => {
     const reference = rebuilt();
     for (const query of queries) {
-      expect(shape(built.search(query, filters)), `${query} / ${label}`).toEqual(
-        shape(reference.search(query, filters)),
+      expect(shape(built.search(query, filters).hits), `${query} / ${label}`).toEqual(
+        shape(reference.search(query, filters).hits),
       );
     }
   };
@@ -155,9 +156,9 @@ describe('an incrementally built index equals a rebuilt one', () => {
   it('has a corpus worth comparing over', () => {
     // A comparison over a corpus that answers nothing proves nothing.
     const reference = rebuilt();
-    const total = queries.reduce((sum, q) => sum + reference.search(q, baseFilters).length, 0);
+    const total = queries.reduce((sum, q) => sum + reference.search(q, baseFilters).hits.length, 0);
     expect(total).toBeGreaterThan(100);
-    expect(reference.search('culvert', baseFilters).length).toBeGreaterThan(0);
+    expect(reference.search('culvert', baseFilters).hits.length).toBeGreaterThan(0);
   });
 
   for (const { name, filters } of filterCases) {
@@ -168,10 +169,10 @@ describe('an incrementally built index equals a rebuilt one', () => {
 
   it('finds attachment text under its parent document, ranked the same', () => {
     const built = incremental(pages);
-    const hits = built.search('culvert', baseFilters);
+    const hits = built.search('culvert', baseFilters).hits;
     expect(hits.length).toBeGreaterThan(0);
     expect(hits.some((h) => h.field === 'attachment')).toBe(true);
-    expect(shape(hits)).toEqual(shape(rebuilt().search('culvert', baseFilters)));
+    expect(shape(hits)).toEqual(shape(rebuilt().search('culvert', baseFilters).hits));
   });
 
   it('is unchanged by a replayed page', () => {
@@ -199,16 +200,16 @@ describe('an incrementally built index equals a rebuilt one', () => {
     const amended = { ...docs[1], body: 'The palapa roof was rethatched by the crew.' };
     built.upsert(amended);
     expect(
-      built.search('palapa', baseFilters).map((h) => encodeHashToBase64(h.doc.original)),
+      built.search('palapa', baseFilters).hits.map((h) => encodeHashToBase64(h.doc.original)),
     ).toEqual([keyOf(docs[1])]);
     // And the old text is gone from it, not merely outranked.
     const before = new Set(
       rebuilt()
-        .search('attendance', baseFilters)
+        .search('attendance', baseFilters).hits
         .map((h) => encodeHashToBase64(h.doc.original)),
     );
     const after = new Set(
-      built.search('attendance', baseFilters).map((h) => encodeHashToBase64(h.doc.original)),
+      built.search('attendance', baseFilters).hits.map((h) => encodeHashToBase64(h.doc.original)),
     );
     expect(before.has(keyOf(docs[1]))).toBe(true);
     expect(after.has(keyOf(docs[1]))).toBe(false);
@@ -273,8 +274,8 @@ describe('the boot path leaves the index a rebuild would have left', () => {
         const scope = filters.folderId ? { id: filters.folderId, label: filters.folderId } : null;
         incrementalBoot.folderScope = scope;
         rebuildBoot.folderScope = scope;
-        expect(shape(incrementalBoot.run(bootFolders)), `${query} / ${name}`).toEqual(
-          shape(rebuildBoot.run(bootFolders)),
+        expect(shape(incrementalBoot.run(bootFolders).hits), `${query} / ${name}`).toEqual(
+          shape(rebuildBoot.run(bootFolders).hits),
         );
       }
     }
@@ -311,7 +312,7 @@ describe('the boot path leaves the index a rebuild would have left', () => {
 
     search.query = 'minutes';
     search.folderScope = { id: 'b', label: 'b' };
-    const hits = search.run(bootFolders).map((h) => encodeHashToBase64(h.doc.original));
+    const hits = search.run(bootFolders).hits.map((h) => encodeHashToBase64(h.doc.original));
     expect(hits).toContain(keyOf(late));
   });
 });

@@ -48,22 +48,23 @@ const noFilters = {
   to: null,
   author: null,
   includeTrashed: false,
+  nearMatches: true,
 };
 
 describe('ArkIndex', () => {
   it('ranks a title match above a body-only match', () => {
-    const hits = makeIndex().search('roof', noFilters);
+    const hits = makeIndex().search('roof', noFilters).hits;
     expect(hits.length).toBeGreaterThan(0);
     // Both doc 2 and doc 3 mention roof in the body only; adding it to a title
     // must lift that document to the top.
     const index = makeIndex();
     index.upsert(doc(4, 'Roof replacement', 'Unrelated body text.', '2023-01-01'));
-    const ranked = index.search('roof', noFilters);
+    const ranked = index.search('roof', noFilters).hits;
     expect(ranked[0].doc.meta.title).toEqual('Roof replacement');
   });
 
   it('returns a snippet with the matched term marked', () => {
-    const hits = makeIndex().search('pump', noFilters);
+    const hits = makeIndex().search('pump', noFilters).hits;
     expect(hits[0].snippet.text).toContain('pump');
     expect(hits[0].snippet.marks.length).toBeGreaterThan(0);
   });
@@ -77,27 +78,27 @@ describe('ArkIndex', () => {
   it('returns nothing for an empty query, even with a folder filter set', () => {
     const index = makeIndex();
     index.setFilings(filings);
-    expect(index.search('', { ...noFilters, folderId: 'bl' })).toEqual([]);
+    expect(index.search('', { ...noFilters, folderId: 'bl' }).hits).toEqual([]);
   });
 
   it('returns nothing for an empty query, even with an author filter set', () => {
     const index = makeIndex();
     const mine = encodeHashToBase64(hash(2));
-    expect(index.search('', { ...noFilters, author: mine })).toEqual([]);
+    expect(index.search('', { ...noFilters, author: mine }).hits).toEqual([]);
   });
 
   it('returns nothing for an empty query, even with a date range set', () => {
-    expect(makeIndex().search('', { ...noFilters, from: '2021-01-01', to: '2021-12-31' })).toEqual(
+    expect(makeIndex().search('', { ...noFilters, from: '2021-01-01', to: '2021-12-31' }).hits).toEqual(
       [],
     );
   });
 
   it('returns nothing for an empty query with no filters at all', () => {
-    expect(makeIndex().search('', noFilters)).toEqual([]);
+    expect(makeIndex().search('', noFilters).hits).toEqual([]);
   });
 
   it('returns nothing for an empty query even with includeTrashed set', () => {
-    expect(makeIndex().search('', { ...noFilters, includeTrashed: true })).toEqual([]);
+    expect(makeIndex().search('', { ...noFilters, includeTrashed: true }).hits).toEqual([]);
   });
 
   // Coverage that the browse removal above deletes: folder/author/date-range
@@ -107,7 +108,7 @@ describe('ArkIndex', () => {
   it('filters a real search by folder, including descendants', () => {
     const index = makeIndex();
     index.setFilings(filings);
-    const hits = index.search('buildings', { ...noFilters, folderId: 'bl' });
+    const hits = index.search('buildings', { ...noFilters, folderId: 'bl' }).hits;
     expect(hits.map((h) => h.doc.meta.title).sort()).toEqual([
       'Buildings and Land, March',
       'Buildings and Land, May',
@@ -121,11 +122,11 @@ describe('ArkIndex', () => {
   // stale or not-yet-loaded tree selection left behind, an empty filings map.
   it('matches regardless of filings state when no folder scope is set', () => {
     const withNoFilings = makeIndex();
-    expect(withNoFilings.search('roof', noFilters).length).toBe(2);
+    expect(withNoFilings.search('roof', noFilters).hits.length).toBe(2);
 
     const withFilings = makeIndex();
     withFilings.setFilings(filings);
-    expect(withFilings.search('roof', noFilters).length).toBe(2);
+    expect(withFilings.search('roof', noFilters).hits.length).toBe(2);
   });
 
   // Companion to the above: scoping must still narrow correctly once a caller
@@ -133,7 +134,7 @@ describe('ArkIndex', () => {
   it('still narrows to a folder and its descendants when scope is explicitly requested', () => {
     const index = makeIndex();
     index.setFilings(filings);
-    const hits = index.search('roof', { ...noFilters, folderId: 'bl' });
+    const hits = index.search('roof', { ...noFilters, folderId: 'bl' }).hits;
     expect(hits.map((h) => h.doc.meta.title).sort()).toEqual(['Buildings and Land, May']);
   });
 
@@ -148,44 +149,44 @@ describe('ArkIndex', () => {
     index.upsert(doc(4, 'Buildings and Land, unknown filing', 'Roof survey pending.', '2024-01-01'));
     index.setFilings(filings); // doc 4 has no entry — its filing is not yet known
 
-    expect(index.search('roof', noFilters).map((h) => h.doc.meta.title)).toContain(
+    expect(index.search('roof', noFilters).hits.map((h) => h.doc.meta.title)).toContain(
       'Buildings and Land, unknown filing',
     );
 
-    const scoped = index.search('roof', { ...noFilters, folderId: 'bl' });
+    const scoped = index.search('roof', { ...noFilters, folderId: 'bl' }).hits;
     expect(scoped.map((h) => h.doc.meta.title)).not.toContain('Buildings and Land, unknown filing');
   });
 
   it('filters a real search by author', () => {
     const index = makeIndex();
     const mine = encodeHashToBase64(hash(2));
-    const hits = index.search('roof', { ...noFilters, author: mine });
+    const hits = index.search('roof', { ...noFilters, author: mine }).hits;
     expect(hits.map((h) => h.doc.meta.title)).toEqual(['Community Life, April']);
   });
 
   it('filters a real search by date range', () => {
-    const hits = makeIndex().search('roof', { ...noFilters, from: '2021-01-01', to: '2021-12-31' });
+    const hits = makeIndex().search('roof', { ...noFilters, from: '2021-01-01', to: '2021-12-31' }).hits;
     expect(hits.map((h) => h.doc.meta.title)).toEqual(['Community Life, April']);
   });
 
   it('honours phrase and exclusion in the query', () => {
     const index = makeIndex();
-    expect(index.search('"well pump"', noFilters).map((h) => h.doc.meta.title)).toEqual([
+    expect(index.search('"well pump"', noFilters).hits.map((h) => h.doc.meta.title)).toEqual([
       'Buildings and Land, March',
     ]);
-    const excluded = index.search('roof -gutter', noFilters);
+    const excluded = index.search('roof -gutter', noFilters).hits;
     expect(excluded.map((h) => h.doc.meta.title)).toEqual(['Community Life, April']);
   });
 
   it('matches by prefix', () => {
-    expect(makeIndex().search('repla', noFilters).length).toBeGreaterThan(0);
+    expect(makeIndex().search('repla', noFilters).hits.length).toBeGreaterThan(0);
   });
 
   it('applies an exclusion that is the whole query', () => {
     // `-roof` alone means "everything except roof". Treating a term-less query
     // as a plain browse would return the entire archive, exclusion ignored.
     const titles = makeIndex()
-      .search('-roof', noFilters)
+      .search('-roof', noFilters).hits
       .map((h) => h.doc.meta.title);
     expect(titles).toEqual(['Buildings and Land, March']);
   });
@@ -193,14 +194,14 @@ describe('ArkIndex', () => {
   it('combines a whole-query exclusion with a filter', () => {
     const index = makeIndex();
     index.setFilings(filings);
-    const hits = index.search('-roof', { ...noFilters, folderId: 'bl' });
+    const hits = index.search('-roof', { ...noFilters, folderId: 'bl' }).hits;
     expect(hits.map((h) => h.doc.meta.title)).toEqual(['Buildings and Land, March']);
   });
 
   it('finds text inside an attachment and names it', () => {
     const index = makeIndex();
     index.setAttachmentText(hash(2), 'budget.csv', 'line item,amount\nwellhouse,4200\n');
-    const hits = index.search('wellhouse', noFilters);
+    const hits = index.search('wellhouse', noFilters).hits;
     expect(hits).toHaveLength(1);
     expect(hits[0].field).toEqual('attachment');
     expect(hits[0].attachmentName).toEqual('budget.csv');
@@ -209,25 +210,25 @@ describe('ArkIndex', () => {
   it('stops matching an attachment once its text is removed', () => {
     const index = makeIndex();
     index.setAttachmentText(hash(2), 'budget.csv', 'line item,amount\nwellhouse,4200\n');
-    expect(index.search('wellhouse', noFilters)).toHaveLength(1);
+    expect(index.search('wellhouse', noFilters).hits).toHaveLength(1);
 
     // Detaching a file must not leave it searchable under a document that no
     // longer has it.
     index.removeAttachmentText(hash(2), 'budget.csv');
-    expect(index.search('wellhouse', noFilters)).toEqual([]);
+    expect(index.search('wellhouse', noFilters).hits).toEqual([]);
   });
 
   it('drops a removed document from results', () => {
     const index = makeIndex();
     index.remove(hash(1));
-    expect(index.search('pump', noFilters)).toEqual([]);
+    expect(index.search('pump', noFilters).hits).toEqual([]);
   });
 
   it('excludes trashed documents unless asked', () => {
     const index = makeIndex();
     index.setTrashed(new Set([index.keyOf(hash(1))]));
-    expect(index.search('pump', noFilters)).toEqual([]);
-    expect(index.search('pump', { ...noFilters, includeTrashed: true })).toHaveLength(1);
+    expect(index.search('pump', noFilters).hits).toEqual([]);
+    expect(index.search('pump', { ...noFilters, includeTrashed: true }).hits).toHaveLength(1);
   });
 });
 
@@ -248,18 +249,18 @@ describe('ArkIndex whole-word queries', () => {
   }
 
   it('prefix-matches a bare term, so `robin` still finds Robinhawk', () => {
-    expect(titles(peopleIndex().search('robin', noFilters))).toEqual(['Land, June', 'Land, July'].sort());
+    expect(titles(peopleIndex().search('robin', noFilters).hits)).toEqual(['Land, June', 'Land, July'].sort());
   });
 
   it('finds only the whole word for a quoted term', () => {
-    expect(titles(peopleIndex().search('"robin"', noFilters))).toEqual(['Land, June']);
+    expect(titles(peopleIndex().search('"robin"', noFilters).hits)).toEqual(['Land, June']);
   });
 
   it('keeps the longer word when the shorter one is excluded', () => {
-    expect(titles(peopleIndex().search('well -robin', noFilters))).toEqual(['Land, July']);
+    expect(titles(peopleIndex().search('well -robin', noFilters).hits)).toEqual(['Land, July']);
   });
 
   it('keeps the longer word for an exclusion-only query', () => {
-    expect(titles(peopleIndex().search('-robin', noFilters))).toEqual(['Land, July']);
+    expect(titles(peopleIndex().search('-robin', noFilters).hits)).toEqual(['Land, July']);
   });
 });
