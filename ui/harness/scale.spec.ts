@@ -72,11 +72,12 @@ test('search over the whole archive answers into the overlay', async ({ page }) 
   const rows = await page.locator('.search-popup .panel li.result').count();
   console.log(`[scale] query "treasurer" over ${TOTAL_DOCUMENTS} documents: ${Date.now() - t0}ms, ${rows} rows rendered`);
 
-  // A query this broad matches nearly the whole archive. The count stays
-  // honest about that, but only the first page of rows reaches the DOM —
-  // rendering one row per hit cost ~400ms to build a list nobody scrolls to
-  // the end of.
-  await expect(page.locator('.panel-count')).toContainText('showing the first 50');
+  // A query this broad matches nearly the whole archive. Only the first page
+  // of rows reaches the DOM — rendering one row per hit costs ~400ms to build
+  // a list nobody has looked at yet — and the count line names both numbers
+  // so the page is never mistaken for the whole answer. The rest is reachable
+  // from here: see search-paging.spec.ts.
+  await expect(page.locator('.panel-count')).toContainText('showing 50 of');
   expect(rows).toBe(50);
   const panelHeight = (await page.locator('.search-popup .panel').boundingBox())!.height;
   expect(panelHeight).toBeLessThan(600);
