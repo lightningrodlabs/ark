@@ -110,6 +110,10 @@
    * them could be read" the moment the import completed.
    */
   let allReadsFailed = $state(false);
+  // Set when the read pool gave up part way: a long run of failures with no
+  // success between them, so the rest were never attempted.
+  let readStoppedEarly = $state(false);
+  let readSkipped = $state(0);
 
   const EMPTY_MATCH: AttachmentMatch = { byImportId: new Map(), unmatched: [] };
   let attachmentMatch = $derived(
@@ -141,6 +145,8 @@
     candidates = [];
     readFailures = [];
     allReadsFailed = false;
+    readStoppedEarly = false;
+    readSkipped = 0;
     chooseError = null;
     reading = true;
     readDone = 0;
@@ -152,12 +158,14 @@
       // Bounded, retried, and reporting per-file failures rather than throwing
       // on the first one — see read-files.ts. A single unreadable file out of
       // 1406 costs the user that file, not the import.
-      const { read, failed } = await readTextFiles(md, (done, total) => {
+      const { read, failed, stoppedEarly, skipped } = await readTextFiles(md, (done, total) => {
         readDone = done;
         readTotal = total;
       });
       mdFiles = read;
       readFailures = failed;
+      readStoppedEarly = stoppedEarly;
+      readSkipped = skipped;
       allReadsFailed = failed.length > 0 && read.length === 0;
       candidates = rest.map((f) => ({ name: f.webkitRelativePath || f.name, file: f }));
       plan = planImport(mdFiles, [...store.byOriginal.values()], tree.folders);
@@ -317,11 +325,18 @@
 
   {#if allReadsFailed}
     <p class="failed">
-      None of the {readFailures.length} markdown file(s) you picked could be read — not one.
+      None of the {readFailures.length} markdown file(s) attempted could be read — not one.
       That points at this environment rather than at the files themselves: reading a picked
       file can behave differently in Moss than it does under <code>applet-dev</code>. Please
       report it with the message below.
     </p>
+    {#if readStoppedEarly}
+      <p class="warn">
+        Stopped after {readFailures.length} failures in a row without attempting the remaining
+        {readSkipped}, rather than spending several minutes failing the same way on every one.
+        A smaller selection may work.
+      </p>
+    {/if}
     <ul class="failed-list">
       {#each readFailures.slice(0, 10) as failure}
         <li>{failure.name} — {failure.error}</li>

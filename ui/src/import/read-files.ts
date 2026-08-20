@@ -115,6 +115,21 @@ export interface ReadFailure {
 }
 
 /**
+ * Stop attempting reads once this many in a row have failed.
+ *
+ * When the environment refuses file reads outright — which is what a live Moss
+ * import of 1409 files did — every read fails, each burning its retries and
+ * their backoff. Grinding through the whole selection to prove the obvious
+ * costs minutes before the user is told anything. A run of failures this long
+ * with no success in between is not bad luck, it is a systemic refusal, and the
+ * useful response is to stop and say so.
+ *
+ * Any success resets the count, so a scattering of individually unreadable
+ * files never trips it.
+ */
+export const CIRCUIT_BREAK_AFTER = 20;
+
+/**
  * Read every picked markdown file, bounded and retried, reporting progress as
  * it goes.
  *
@@ -125,24 +140,39 @@ export interface ReadFailure {
 export async function readTextFiles(
   files: readonly File[],
   onProgress?: (done: number, total: number) => void,
-): Promise<{ read: ImportFile[]; failed: ReadFailure[] }> {
+): Promise<{ read: ImportFile[]; failed: ReadFailure[]; stoppedEarly: boolean; skipped: number }> {
   const failed: ReadFailure[] = [];
   let done = 0;
+  let consecutiveFailures = 0;
+  let stoppedEarly = false;
+  let skipped = 0;
   onProgress?.(0, files.length);
   const results = await mapPool(files, READ_CONCURRENCY, async (file) => {
     // The relative path (not just the basename) is what lets matchAttachments
     // tell two same-named attachments in different meeting folders apart.
     const name = file.webkitRelativePath || file.name;
+    if (stoppedEarly) {
+      skipped++;
+      return null;
+    }
     try {
-      return { name, text: await withReadRetry(() => file.text()) };
+      const text = await withReadRetry(() => file.text());
+      consecutiveFailures = 0;
+      return { name, text };
     } catch (error) {
       failed.push({ name, error: String(error) });
+      if (++consecutiveFailures >= CIRCUIT_BREAK_AFTER) stoppedEarly = true;
       return null;
     } finally {
       onProgress?.(++done, files.length);
     }
   });
-  return { read: results.filter((r): r is ImportFile => r !== null), failed };
+  return {
+    read: results.filter((r): r is ImportFile => r !== null),
+    failed,
+    stoppedEarly,
+    skipped,
+  };
 }
 
 /**
