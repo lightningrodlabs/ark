@@ -9,8 +9,14 @@ members = ["crates/*", "dnas/*/zomes/coordinator/*", "dnas/*/zomes/integrity/*"]
 resolver = "2"
 
 [workspace.dependencies]
-hdi = { version = "0.7.0" }
-hdk = { version = "0.6.0" }
+# Pinned exactly, not floated. Moss 0.15 bundles holochain-v0.6.1, and a later
+# 0.6.x HDK emits an import for a host function that conductor does not have
+# ("unknown import __hc__get_init_properties_1", at applet load). The DNA tests
+# cannot catch this: holonix main-0.6 ships conductor 0.6.3, which does provide
+# it, so the wasm passes there and fails in Moss. Raise these only together
+# with the conductor Moss actually ships.
+hdi = { version = "=0.7.1" }
+hdk = { version = "=0.6.1" }
 holochain_serialized_bytes = "0.0.57"
 serde = "1"
 
