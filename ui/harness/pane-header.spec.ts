@@ -86,7 +86,7 @@ test('the import panel says what it is, and closing it leaves the pane empty', a
   // The whole reported confusion: the pane now holds something else, and it
   // has to say so.
   await expect(title(page)).toHaveText('Import markdown');
-  await expect(page.locator('.pane-end input[type="file"]')).toBeVisible();
+  await expect(page.locator('.pane-end input.pick-folder')).toBeVisible();
 
   await close(page).click();
   // Empty, not the document that was open before Import took the pane.
@@ -112,7 +112,7 @@ test('the close button is disabled while an import is actually running', async (
   // Before the run starts, closing is fine.
   await expect(close(page)).toBeEnabled();
 
-  await page.setInputFiles('.pane-end input[type="file"]', importDir);
+  await page.setInputFiles('.pane-end input.pick-folder', importDir);
   await expect(page.locator('.pane-end .summary')).toContainText('2');
 
   // Hold every create_document open so the run is genuinely in flight while

@@ -173,7 +173,7 @@ test('the import progress label advances while the run is in flight', async ({ p
   await page.goto('/harness/index.html');
   await expect(page.getByRole('button', { name: 'New document' })).toBeVisible();
   await openImport(page);
-  await page.setInputFiles('.pane-end input[type="file"]', importDir);
+  await page.setInputFiles('.pane-end input.pick-folder', importDir);
   await expect(page.locator('.pane-end .summary')).toContainText(String(IMPORT_DOCS));
 
   // Hold every create_document, so the run is genuinely in flight rather than

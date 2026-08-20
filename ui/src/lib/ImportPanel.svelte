@@ -43,6 +43,15 @@
     onRunningChange?: (running: boolean) => void;
   } = $props();
 
+  /**
+   * The two pickers. `webkitdirectory` cannot be turned on and off on one
+   * input, so there are two — and picking with either has to clear the other,
+   * or the control the user did not use goes on displaying a stale file count
+   * beside the plan it had nothing to do with.
+   */
+  let folderInput = $state<HTMLInputElement | null>(null);
+  let filesInput = $state<HTMLInputElement | null>(null);
+
   let mdFiles = $state<ImportFile[]>([]);
   // Non-markdown files picked alongside the minutes — attachment candidates,
   // matched against each planned document's front matter, preferring one in
@@ -123,6 +132,9 @@
    */
   async function choose(event: Event) {
     const input = event.target as HTMLInputElement;
+    for (const other of [folderInput, filesInput]) {
+      if (other && other !== input) other.value = '';
+    }
     plan = null;
     summary = null;
     mdFiles = [];
@@ -260,10 +272,40 @@
      was the first thing a shared header made redundant. -->
 <section>
   <p>
-    Choose a folder of <code>.md</code> files with YAML front matter. Any attachment files named
-    in the front matter can be selected too — pick the whole export folder.
+    Import <code>.md</code> files with YAML front matter. Pick the whole export folder — any
+    attachment files named in the front matter are picked up along with it — or pick individual
+    files, which is the way to import one document or to narrow down a folder that will not
+    import.
   </p>
-  <input type="file" multiple webkitdirectory onchange={choose} />
+  <!-- Two controls, because one input cannot be both. `webkitdirectory` makes
+       the picker directory-ONLY: with just that input there was no way to
+       import a single file, or a hand-picked few — which also left the user
+       unable to run the obvious diagnostic when a whole-folder import failed.
+       Both routes go through the same `choose`, so the plan, the import and
+       the failure reporting are identical either way. -->
+  <div class="pickers">
+    <label>
+      <span>Choose a folder</span>
+      <input
+        type="file"
+        multiple
+        webkitdirectory
+        class="pick-folder"
+        bind:this={folderInput}
+        onchange={choose}
+      />
+    </label>
+    <label>
+      <span>…or choose individual files</span>
+      <input
+        type="file"
+        multiple
+        class="pick-files"
+        bind:this={filesInput}
+        onchange={choose}
+      />
+    </label>
+  </div>
 
   {#if reading}
     <p class="reading">Reading {readDone}/{readTotal} file(s)…</p>
@@ -370,6 +412,9 @@
   section { padding: 1rem; max-width: 46rem; }
   /* The first paragraph's own top margin doubled the header's padding. */
   section > p:first-child { margin-top: 0; }
+  .pickers { display: flex; flex-direction: column; gap: 0.5rem; }
+  .pickers label { display: flex; flex-direction: column; gap: 0.15rem; }
+  .pickers span { font-size: 0.85rem; color: #57534e; }
   .summary, .result, .failed-list { list-style: none; padding: 0; }
   .failed { color: #b91c1c; font-weight: bold; }
   .reading { color: #57534e; }
