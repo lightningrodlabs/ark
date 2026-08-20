@@ -365,6 +365,47 @@ describe('DocumentStore', () => {
       expect(ark.getDocument).not.toHaveBeenCalled();
       expect(store.byOriginal.size).toEqual(6);
     });
+
+    // The import's closing refresh runs this, and a refresh at corpus scale is
+    // many round trips. Reporting it is what keeps the button from claiming
+    // the run is over while it is still reading the archive back.
+    it('reports progress as each missing document arrives', async () => {
+      const docs = [summary(1, 'One')];
+      const ark = fakeArk(docs, []);
+      const store = new DocumentStore(ark, 100);
+      await store.load(folders);
+
+      docs.push(summary(2, 'Two'), summary(3, 'Three'));
+      const seen: [number, number][] = [];
+      await store.syncMissing(folders, (done, total) => seen.push([done, total]));
+
+      expect(seen).toEqual([
+        [1, 2],
+        [2, 2],
+      ]);
+    });
+
+    // The expensive branch is the one that most needs reporting: this is the
+    // fifteen-round-trip re-page a first import of the whole archive takes.
+    it('reports paged progress when it falls back to the full load', async () => {
+      const docs = Array.from({ length: 3 }, (_, i) => summary(i, `Doc ${i}`));
+      const ark = fakeArk(docs, []);
+      const store = new DocumentStore(ark, 2);
+      await store.load(folders);
+
+      for (let i = 3; i < 6; i++) docs.push(summary(i, `Doc ${i}`));
+      const seen: [number, number][] = [];
+      const result = await store.syncMissing(folders, (done, total) => seen.push([done, total]));
+
+      expect(result.fellBack).toBe(true);
+      // Two documents a page, six in total, and the total is known from the
+      // first page rather than counted up to.
+      expect(seen).toEqual([
+        [2, 6],
+        [4, 6],
+        [6, 6],
+      ]);
+    });
   });
 
   describe('reload without change', () => {

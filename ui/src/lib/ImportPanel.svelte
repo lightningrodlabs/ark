@@ -4,6 +4,7 @@
   import type { DocumentStore } from '../stores/documents.svelte';
   import type { TreeStore } from '../stores/tree.svelte';
   import type { SearchStore } from '../stores/search.svelte';
+  import { syncMissing } from '../reconcile';
   import {
     matchAttachments,
     planImport,
@@ -26,7 +27,12 @@
     tree: TreeStore;
     store: DocumentStore;
     fileStorage: FileStorageClient;
-    search?: SearchStore;
+    /**
+     * Required, not optional: this panel keeps the index in step itself now
+     * (see `refresh` below), so a run without one would leave search quietly
+     * answering for the archive as it was before the import.
+     */
+    search: SearchStore;
     onDone: () => void;
     /**
      * Reported up so the pane's close button can be disabled while documents
@@ -44,6 +50,15 @@
   let plan = $state<ImportPlan | null>(null);
   let running = $state(false);
   let progress = $state(0);
+  /**
+   * A run has two halves, and the second one used to be invisible: writing the
+   * documents, then reading back what was written. On the reference archive
+   * the read-back is many round trips, and a button frozen at `1406/1406`
+   * throughout is exactly the "finished, but hung" the import was reported as.
+   */
+  let phase = $state<'writing' | 'refreshing'>('writing');
+  let refreshed = $state(0);
+  let refreshTotal = $state(0);
   let summary = $state<{
     created: number;
     skipped: number;
@@ -75,10 +90,34 @@
     summary = null;
   }
 
+  /**
+   * Pick up what the run just wrote.
+   *
+   * This used to be `store.load(tree.folders)` — a re-page of every document
+   * in the archive to discover the handful just created, followed by a full
+   * index rebuild on top. `syncMissing` reads the hash list and fetches only
+   * what is actually missing, updating the index incrementally; it still falls
+   * back to the paged load when the delta is larger than one page (a first
+   * import of the whole archive), which is the one case where re-paging is
+   * genuinely the cheaper answer. Shared with the reconcile backstop rather
+   * than reimplemented here: the fallback threshold and what the index needs
+   * afterwards are one rule, and two copies of it would drift.
+   */
+  async function refresh() {
+    phase = 'refreshing';
+    await syncMissing({ tree, store, search }, (done, total) => {
+      refreshed = done;
+      refreshTotal = total;
+    });
+  }
+
   async function go() {
     if (!plan) return;
     running = true;
     progress = 0;
+    phase = 'writing';
+    refreshed = 0;
+    refreshTotal = 0;
     let created = 0;
     let attached = 0;
     const attachmentsFailed: string[] = [];
@@ -100,7 +139,7 @@
           folders: tree.folders,
           files: fileStorage,
           attachments,
-          onAttachmentText: (original, name, text) => search?.setAttachmentText(original, name, text),
+          onAttachmentText: (original, name, text) => search.setAttachmentText(original, name, text),
           // Per document, not per slice. The slice boundary was the only
           // thing that moved this number before, and at 25 documents a step
           // that is minutes of a motionless label on the reference archive —
@@ -111,7 +150,7 @@
         attached += result.attached;
         attachmentsFailed.push(...result.attachmentsFailed);
       }
-      await store.load(tree.folders);
+      await refresh();
     } catch (e) {
       // A failure partway through must not be a silent unhandled rejection —
       // report how much got created before it, and the error, so the user
@@ -121,7 +160,7 @@
       // reload, but a second failure here must not mask the first, more
       // informative one or leave the `finally` block from running.
       try {
-        await store.load(tree.folders);
+        await refresh();
       } catch {
         // Reported via runError already; nothing more useful to say.
       }
@@ -143,6 +182,7 @@
       plan = null;
       mdFiles = [];
       candidates = [];
+      phase = 'writing';
       running = false;
       onDone();
     }
@@ -179,7 +219,15 @@
       </details>
     {/if}
     <button onclick={go} disabled={running || plan.create.length === 0}>
-      {running ? `Importing ${progress}/${plan.create.length}…` : 'Import'}
+      {#if !running}
+        Import
+      {:else if phase === 'writing'}
+        Importing {progress}/{plan.create.length}…
+      {:else if refreshTotal}
+        Refreshing the archive… {refreshed}/{refreshTotal}
+      {:else}
+        Refreshing the archive…
+      {/if}
     </button>
   {/if}
 

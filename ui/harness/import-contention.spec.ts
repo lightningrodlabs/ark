@@ -11,10 +11,12 @@ import { tmpdir } from 'node:os';
 //    that the corpus moved — the import moved it — and re-fetches, serialised
 //    against the import's own writes on the same cell.
 // 2. The import's closing refresh re-pages the WHOLE corpus with the button
-//    still reading `N/N`, so the UI looks finished and hung. (Next commit.)
+//    still reading `N/N`, so the UI looks finished and hung.
 
 const IMPORT_DOCS = 8;
 let importDir: string;
+/** A second, tiny import for the seeded-archive call-count test. */
+let smallDir: string;
 
 function writeMinutes(dir: string, count: number, prefix: string): void {
   for (let i = 0; i < count; i++) {
@@ -28,8 +30,13 @@ function writeMinutes(dir: string, count: number, prefix: string): void {
 test.beforeAll(() => {
   importDir = mkdtempSync(join(tmpdir(), 'ark-contention-'));
   writeMinutes(importDir, IMPORT_DOCS, 'run');
+  smallDir = mkdtempSync(join(tmpdir(), 'ark-contention-small-'));
+  writeMinutes(smallDir, 2, 'extra');
 });
-test.afterAll(() => rmSync(importDir, { recursive: true, force: true }));
+test.afterAll(() => {
+  rmSync(importDir, { recursive: true, force: true });
+  rmSync(smallDir, { recursive: true, force: true });
+});
 
 /** Open the import panel the only way the app offers: through About. */
 async function openImport(page: Page): Promise<void> {
@@ -109,4 +116,58 @@ test('the reconcile resumes as soon as the import is over', async ({ page }) => 
   await expect
     .poll(() => countOf(page, 'get_all_documents'))
     .toBeGreaterThan(before);
+});
+
+// ---------------------------------------------------------------------------
+// 2. The closing refresh: what it costs, and what it says while it runs.
+// ---------------------------------------------------------------------------
+
+// The reported symptom, at archive scale: the button reads `1406/1406` — done,
+// as far as anyone looking can tell — while fifteen more round trips page the
+// entire corpus back in.
+test('the closing refresh says what it is doing instead of sitting at N/N', async ({ page }) => {
+  await page.goto('/harness/index.html');
+  await expect(page.getByRole('button', { name: 'New document' })).toBeVisible();
+  await openImport(page);
+  await pickAndPlan(page, importDir, IMPORT_DOCS);
+
+  // Nothing calls get_document_hashes during the writing phase, so parking it
+  // holds the run open at exactly the closing refresh and nowhere else.
+  await stall(page, 'get_document_hashes');
+  await page.getByRole('button', { name: 'Import', exact: true }).click();
+
+  await expect(importButton(page)).toHaveText(/Refreshing the archive/);
+  await expect(importButton(page)).not.toHaveText(`Importing ${IMPORT_DOCS}/${IMPORT_DOCS}…`);
+
+  await releaseAll(page);
+  await expect(page.locator('.pane-end .result')).toContainText(
+    `${IMPORT_DOCS} document(s) created`,
+  );
+});
+
+// The measurement the fix is actually about. On the reference archive the old
+// closing `store.load()` was fifteen `get_all_documents` round trips to pick
+// up two new documents; the incremental path reads the hash list and fetches
+// only what is missing.
+test('the closing refresh does not re-page the whole corpus', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto('/harness/index.html?seed=archive');
+  await expect(page.locator('[data-testid="loading-note"]')).toHaveCount(0, { timeout: 60_000 });
+
+  const paged = await countOf(page, 'get_all_documents');
+  expect(paged).toBeGreaterThan(1); // the initial load really did page
+
+  await openImport(page);
+  await pickAndPlan(page, smallDir, 2);
+  await page.getByRole('button', { name: 'Import', exact: true }).click();
+  await expect(page.locator('.pane-end .result')).toContainText('2 document(s) created');
+
+  expect(await countOf(page, 'get_all_documents')).toBe(paged);
+  expect(await countOf(page, 'get_document_hashes')).toBeGreaterThan(0);
+
+  // The two new documents really are in the store and in the index, not
+  // merely un-fetched: the whole point of the cheaper path is that it is not
+  // cheaper by doing less.
+  await page.locator('input[type="search"]').fill('"extra minutes 1"');
+  await expect(page.locator('.search-popup li.result').first()).toBeVisible();
 });

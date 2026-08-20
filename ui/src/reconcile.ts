@@ -56,16 +56,28 @@ async function reloadEverything({ tree, store, search }: ReconcileDeps): Promise
 /**
  * Fetches only what changed — the hash list, then just the missing documents
  * — instead of re-paging the whole corpus. Used by `focus` and `timer` once
- * `changedSince()` says something moved.
+ * `changedSince()` says something moved, and by ImportPanel to pick up the
+ * documents a run just wrote.
  *
  * A hash list cannot reveal an amendment (the original action hash is
  * unchanged; only `latest` moves), so this still misses that case exactly as
  * `changedSince()` does — `sweep`'s unconditional full reload is what catches
  * it, on a bounded cadence.
+ *
+ * Exported so the import has one of these rather than a second copy: the rule
+ * about when a delta is too large to fetch document-by-document, and what the
+ * index then needs, is subtle enough that two of it would drift.
+ *
+ * `onProgress` reports the refresh as it goes (`done` of `total`), for a
+ * caller with a label to keep honest — a refresh at corpus scale is many round
+ * trips, and silence there is what makes a finished import look hung.
  */
-async function syncMissing({ tree, store, search }: ReconcileDeps): Promise<boolean> {
+export async function syncMissing(
+  { tree, store, search }: ReconcileDeps,
+  onProgress?: (done: number, total: number) => void,
+): Promise<boolean> {
   const treeChanged = await tree.load();
-  const result = await store.syncMissing(tree.folders);
+  const result = await store.syncMissing(tree.folders, onProgress);
   if (result.fellBack) {
     // The delta was too large to fetch document-by-document; store.load()
     // already ran in full, so the index needs the same full treatment.
