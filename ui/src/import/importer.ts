@@ -6,6 +6,7 @@ import type { DocumentSummary, Folder } from '../types';
 import { folderPath as ancestorsOf } from '../tree/paths';
 import { parseFrontMatter } from './frontmatter';
 import { decodeAttachment, isIndexableText } from '../attachments/text';
+import { readFileBytes, withReadRetry } from './read-files';
 
 export interface ImportFile {
   name: string;
@@ -187,20 +188,6 @@ export function matchAttachments(
   return { byImportId, unmatched };
 }
 
-/**
- * Read a File's bytes via FileReader rather than `File.arrayBuffer()` — the
- * latter is unimplemented in some Blob polyfills (including this project's
- * own jsdom test environment), while FileReader is universally supported.
- */
-function readFileBytes(file: File): Promise<Uint8Array> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsArrayBuffer(file);
-  });
-}
-
 export async function runImport(
   plan: ImportPlan,
   deps: {
@@ -273,7 +260,27 @@ export async function runImport(
     const files = deps.attachments?.get(planned.import_id) ?? [];
     for (const file of files) {
       try {
-        const hash = await deps.files!.uploadFile(file);
+        // Read the bytes here rather than letting `uploadFile` read them.
+        //
+        // These `File` handles were acquired when the folder was picked and
+        // are read minutes later, once every document ahead of this one has
+        // been written — by far the most exposed read in the import, and
+        // `NotReadableError` is specifically the error for a handle that has
+        // gone bad since it was taken. Owning the read is what makes a retry
+        // possible at all: retrying `uploadFile` would re-send chunks already
+        // committed, while retrying a read costs nothing but the read.
+        //
+        // Two other things fall out of it. `uploadFile` splits the file and
+        // reads every chunk with `Promise.all`, so a large attachment was
+        // itself an unbounded read; from an in-memory blob it touches no file
+        // at all. And a text attachment used to be read twice — once to
+        // upload, once to index — which is now once.
+        const bytes = await withReadRetry(() => readFileBytes(file));
+        const upload = new File([bytes], file.name, {
+          type: file.type,
+          lastModified: file.lastModified,
+        });
+        const hash = await deps.files!.uploadFile(upload);
         await deps.ark.attachFile(original, hash);
         attached++;
         // Index eagerly, right while the bytes are already in hand, instead
@@ -281,7 +288,6 @@ export async function runImport(
         // this document. Twenty-five files (one import slice) is trivial to
         // do eagerly.
         if (deps.onAttachmentText && isIndexableText(file.name, file.type)) {
-          const bytes = await readFileBytes(file);
           deps.onAttachmentText(original, file.name, decodeAttachment(bytes));
         }
       } catch (e) {

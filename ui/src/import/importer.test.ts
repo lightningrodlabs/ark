@@ -239,6 +239,57 @@ describe('runImport', () => {
     expect(onAttachmentText).not.toHaveBeenCalled();
   });
 
+  it('reports an attachment whose bytes cannot be read, and still creates the document', async () => {
+    // Attachment File handles are read minutes after the folder was picked —
+    // every document ahead of this one has been written since. A read that
+    // fails there must cost the attachment and nothing else: losing the
+    // document because its budget spreadsheet would not read is the one
+    // outcome worse than an incomplete document plus a note.
+    const failing = vi
+      .spyOn(FileReader.prototype, 'readAsArrayBuffer')
+      .mockImplementation(function (this: FileReader) {
+        Object.defineProperty(this, 'error', {
+          value: new DOMException('The requested file could not be read', 'NotReadableError'),
+          configurable: true,
+        });
+        setTimeout(() => this.dispatchEvent(new ProgressEvent('error')), 0);
+      });
+    try {
+      const ark = {
+        createDocument: vi.fn(async (_input: any) => new Uint8Array([9]) as any),
+        attachFile: vi.fn(async () => null),
+      };
+      const tree = { addFolder: vi.fn() };
+      const files = { uploadFile: vi.fn(async () => new Uint8Array([7]) as any) };
+      const plan = planImport(
+        [minutesWithAttachment(1, 'Finance and Legal', '2026-01-01', 'budget.pdf')],
+        [],
+        folders,
+      );
+      const budget = new File(['x'], 'budget.pdf', { type: 'application/pdf' });
+
+      const result = await runImport(plan, {
+        ark: ark as any,
+        tree: tree as any,
+        folders,
+        files: files as any,
+        attachments: new Map([[plan.create[0].import_id, [budget]]]),
+      });
+
+      expect(result.created).toEqual(1);
+      expect(result.attached).toEqual(0);
+      expect(result.attachmentsFailed).toHaveLength(1);
+      // Named, and named with the document it belongs to, so it can be found.
+      expect(result.attachmentsFailed[0]).toContain('budget.pdf');
+      expect(result.attachmentsFailed[0]).toContain('NotReadableError');
+      // Nothing was written to file storage for a file that never read.
+      expect(files.uploadFile).not.toHaveBeenCalled();
+      expect(ark.attachFile).not.toHaveBeenCalled();
+    } finally {
+      failing.mockRestore();
+    }
+  });
+
   it('writes nothing when everything was skipped', async () => {
     const ark = { createDocument: vi.fn() };
     const tree = { addFolder: vi.fn() };
