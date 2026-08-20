@@ -15,6 +15,11 @@ import { createDocument } from './helpers';
 // what does NOT run — an asset view must fetch exactly one document, never
 // boot the tree/store/search apparatus that indexes the whole corpus.
 
+// `rendered` is no longer something ark writes — that second pocket view was
+// removed, because it rendered through this same component and was
+// indistinguishable once opened. It stays in this loop as the compatibility
+// case: pocket items saved before the removal still carry that context and
+// must still render.
 for (const asset of ['plain', 'rendered'] as const) {
   test(`asset view (${asset}) renders the document's markdown read-only, with nothing else`, async ({
     page,

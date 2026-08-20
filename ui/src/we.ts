@@ -3,11 +3,9 @@ import type { AppletServices, RecordInfo, WAL } from '@theweave/api';
 import { ArkClient } from './ark-client';
 
 /**
- * Bootstrap Icons ("file-earmark-text" / "file-earmark-richtext"), matching
- * the inline-data-URI style `shoelace.ts` uses for the same reason: no fetch,
- * no assets directory, nothing to go wrong in a sandboxed offline iframe. The
- * two differ only enough that a "rendered" pocket item is visually distinct
- * from the plain document one sitting next to it.
+ * Bootstrap Icons ("file-earmark-text"), matching the inline-data-URI style
+ * `shoelace.ts` uses for the same reason: no fetch, no assets directory,
+ * nothing to go wrong in a sandboxed offline iframe.
  */
 function fileIcon(bodyPath: string): string {
   return (
@@ -20,9 +18,6 @@ function fileIcon(bodyPath: string): string {
 
 const DOCUMENT_ICON = fileIcon(
   '<path d="M5.5 7a.5.5 0 0 0 0 1h5a.5.5 0 0 0 0-1h-5ZM5 9.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5ZM5.5 11a.5.5 0 0 0 0 1h2a.5.5 0 0 0 0-1h-2Z"/>',
-);
-const RENDERED_ICON = fileIcon(
-  '<path d="M7 4.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 0 1h-1a.5.5 0 0 1-.5-.5ZM4 6.5A.5.5 0 0 1 4.5 6h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5ZM4.5 8a.5.5 0 0 0 0 1h5a.5.5 0 0 0 0-1h-5ZM4 10.5a.5.5 0 0 1 .5-.5h1.5a.5.5 0 0 1 0 1H4.5a.5.5 0 0 1-.5-.5Z"/>',
 );
 
 /**
@@ -46,10 +41,14 @@ export const appletServices: AppletServices = {
       // A document can be trashed, or simply not exist any more by the time
       // Moss asks — this is not an error, just nothing to show.
       if (!doc) return undefined;
-      const rendered = wal.context?.view === 'rendered';
+      // `wal.context` is deliberately ignored. There used to be a second
+      // "rendered" pocket view, but it rendered through the same AssetView and
+      // was indistinguishable once opened — two buttons, one outcome. Pocket
+      // items created before it was removed still carry `{ view: 'rendered' }`,
+      // and must keep resolving; ignoring the context is what makes that true.
       return {
         name: doc.meta.title ?? '(untitled)',
-        icon_src: rendered ? RENDERED_ICON : DOCUMENT_ICON,
+        icon_src: DOCUMENT_ICON,
       };
     } catch {
       return undefined;
