@@ -66,10 +66,53 @@ export class ArkIndex {
     this.mini.addAll(docs.map((d) => this.indexedFor(d)));
   }
 
+  /**
+   * Index one document, replacing whatever version was there.
+   *
+   * Re-indexing a document whose indexed TEXT has not changed only refreshes
+   * the stored summary; it does not touch MiniSearch. That is not an
+   * optimisation, it is what makes this safe to call twice on the same
+   * document. `discard` leaves the old posting entries in the inverted index
+   * until a vacuum, and `search` both counts them in the document frequency
+   * BM25 divides by and cleans them up as it walks them — so a pointless
+   * discard/add pair moves scores and reorders ties. The initial load feeds
+   * every arriving page through here, and a page can arrive twice (a retry,
+   * an overlapping re-page); it has to leave the index exactly as one pass
+   * would.
+   *
+   * Only `title` and `body` are compared because only they and the
+   * attachment text are indexed, and attachment text cannot change here —
+   * `setAttachmentText`/`removeAttachmentText` change it, and they re-index
+   * unconditionally. Everything else on a summary (date, author, `latest`)
+   * is read from `docs`, which is always updated.
+   */
   upsert(doc: DocumentSummary): void {
     const id = this.keyOf(doc.original);
-    if (this.docs.has(id)) this.mini.discard(id);
+    const previous = this.docs.get(id);
     this.docs.set(id, doc);
+    if (
+      previous &&
+      previous.body === doc.body &&
+      (previous.meta.title ?? '') === (doc.meta.title ?? '')
+    ) {
+      return;
+    }
+    this.reindex(id, doc);
+  }
+
+  /**
+   * A page of documents as it arrives. MiniSearch's own `addAll` is a plain
+   * loop over `add`, so batching buys nothing beyond the call itself — this
+   * exists so callers do not each write the loop, and so the idempotence
+   * guard above is on the path they all take.
+   */
+  upsertAll(docs: DocumentSummary[]): void {
+    for (const doc of docs) this.upsert(doc);
+  }
+
+  /** Unconditionally re-index a document already recorded in `docs`. */
+  private reindex(id: string, doc: DocumentSummary): void {
+    if (this.mini.has(id)) this.mini.discard(id);
     this.mini.add(this.indexedFor(doc));
   }
 
@@ -87,7 +130,10 @@ export class ArkIndex {
     const list = this.attachments.get(id) ?? [];
     this.attachments.set(id, [...list.filter((a) => a.name !== name), { name, text }]);
     const doc = this.docs.get(id);
-    if (doc) this.upsert(doc);
+    // Not `upsert`: the document itself is unchanged, so the guard there
+    // would (correctly, for its own callers) skip the re-index that is the
+    // entire point of this call.
+    if (doc) this.reindex(id, doc);
   }
 
   /** Forget one attachment's text, e.g. when it is detached from the document. */
@@ -100,7 +146,7 @@ export class ArkIndex {
     if (remaining.length === 0) this.attachments.delete(id);
     else this.attachments.set(id, remaining);
     const doc = this.docs.get(id);
-    if (doc) this.upsert(doc);
+    if (doc) this.reindex(id, doc);
   }
 
   setFilings(filings: Map<string, string | null>): void {
