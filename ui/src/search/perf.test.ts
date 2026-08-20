@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import path from 'path';
-import { ArkIndex } from './index';
+import { ArkIndex, type SearchFilters } from './index';
 import { generateCorpus } from '../../scripts/generate-corpus';
 import { parseFrontMatter } from '../import/frontmatter';
 import type { DocumentSummary, Folder } from '../types';
@@ -41,14 +41,14 @@ function corpus(): DocumentSummary[] {
 }
 
 const folders: Folder[] = [];
-const filters = {
+const filters: SearchFilters = {
   folderId: null,
   folders,
   from: null,
   to: null,
   author: null,
   includeTrashed: false,
-  nearMatches: true,
+  nearMatches: 'fallback',
 };
 
 describe('search performance at corpus scale', () => {
@@ -79,6 +79,36 @@ describe('search performance at corpus scale', () => {
       const elapsed = performance.now() - start;
       console.log(`query ${JSON.stringify(query)}: ${Math.round(elapsed)}ms, ${hits.length} hits`);
       expect(elapsed, query).toBeLessThan(QUERY_BUDGET_MS);
+    }
+  });
+
+  it(`answers an "always" query in under ${QUERY_BUDGET_MS}ms too`, () => {
+    // `always` runs BOTH passes on every query, including the ones that had
+    // real answers and would previously have stopped after the first. It is
+    // the one mode whose cost is unconditional, so it gets its own budget
+    // rather than being assumed to behave like the default.
+    const index = new ArkIndex();
+    index.rebuild(docs);
+    const always = { ...filters, nearMatches: 'always' as const };
+    for (const query of ['budget', 'roof repair', 'treasur', 'minutes -draft']) {
+      const start = performance.now();
+      const { hits, exactCount } = index.search(query, always);
+      const elapsed = performance.now() - start;
+      console.log(
+        `always ${JSON.stringify(query)}: ${Math.round(elapsed)}ms, ` +
+          `${exactCount} exact + ${hits.length - exactCount} near`,
+      );
+      expect(elapsed, query).toBeLessThan(QUERY_BUDGET_MS);
+      // The de-duplication, at the scale where it matters. The fuzzy pass
+      // over this corpus returns essentially the same ~1380 documents the
+      // exact pass did — its vocabulary is small enough that every near
+      // neighbour of a query word is in the same documents as the word. So
+      // every one of them has to be dropped: without that, `always` would
+      // return each document twice and double the entire result list.
+      // Keyed on the document, not the title, because the generated corpus
+      // reuses titles across years exactly as the real archive does.
+      const ids = hits.map((h) => index.keyOf(h.doc.original));
+      expect(new Set(ids).size, query).toBe(ids.length);
     }
   });
 

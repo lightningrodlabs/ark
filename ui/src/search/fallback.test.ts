@@ -52,7 +52,7 @@ const noFilters: SearchFilters = {
   to: null,
   author: null,
   includeTrashed: false,
-  nearMatches: true,
+  nearMatches: 'fallback',
 };
 
 function makeIndex(): ArkIndex {
@@ -144,7 +144,7 @@ describe('near-match fallback', () => {
   });
 
   it('offers no fallback when near matches are turned off', () => {
-    const strict = { ...noFilters, nearMatches: false };
+    const strict = { ...noFilters, nearMatches: 'never' as const };
     const { hits, nearMatch } = makeIndex().search('asdf', strict);
 
     expect(hits).toEqual([]);
@@ -172,6 +172,6 @@ describe('near-match fallback', () => {
   });
 
   it('does not fall back for an empty query', () => {
-    expect(makeIndex().search('', noFilters)).toEqual({ hits: [], nearMatch: null });
+    expect(makeIndex().search('', noFilters)).toEqual({ hits: [], exactCount: 0, nearMatch: null });
   });
 });

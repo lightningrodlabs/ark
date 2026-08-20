@@ -75,6 +75,9 @@ test('a query nothing matches exactly falls back to near matches and names them'
   await expect(rows(page)).toHaveCount(1);
   // The row marks what actually matched, not the query it could never find.
   await expect(rows(page).first().locator('mark')).toHaveText(['Asif']);
+  // Even in the fallback mode the near rows say what they are, so a result
+  // list is never a mix the user has to work out for themselves.
+  await expect(rows(page).first().locator('.near-badge')).toHaveText('Near match');
 });
 
 test('opening a near-match hit highlights the matched term in the document', async ({ page }) => {
@@ -109,7 +112,7 @@ test('with near matches turned off the query returns nothing and says so plainly
 }) => {
   await seed(page);
   await page.getByRole('button', { name: 'Filters' }).click();
-  await page.getByLabel('Near matches when nothing matches exactly').uncheck();
+  await page.getByLabel('Near matches').selectOption('never');
 
   await page.locator('input[type="search"]').fill('asdf');
   await expect(page.locator('.bar .count')).toHaveText('0 results');
@@ -171,10 +174,16 @@ test('the funnel fills in whenever a filter is actually narrowing the search', a
   await expect(icon).toHaveAttribute('name', 'funnel-fill');
   await expect(toggle.locator('.filter-dot')).toBeVisible();
 
-  // Turning the near-match fallback off narrows results too, so it counts.
+  // A near-match mode other than the default counts too — in BOTH directions.
+  // `never` narrows in the ordinary way; `always` widens, and still has to
+  // show, because a session left in it three days ago is otherwise a mystery.
   await toggle.click();
   await page.locator('#ark-search-filters label', { hasText: 'From' }).locator('input').fill('');
   await expect(icon).toHaveAttribute('name', 'funnel');
-  await page.getByLabel('Near matches when nothing matches exactly').uncheck();
+  await page.getByLabel('Near matches').selectOption('never');
   await expect(icon).toHaveAttribute('name', 'funnel-fill');
+  await page.getByLabel('Near matches').selectOption('always');
+  await expect(icon).toHaveAttribute('name', 'funnel-fill');
+  await page.getByLabel('Near matches').selectOption('fallback');
+  await expect(icon).toHaveAttribute('name', 'funnel');
 });

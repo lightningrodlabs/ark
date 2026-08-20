@@ -1,5 +1,11 @@
 import type { ActionHash } from '@holochain/client';
-import { ArkIndex, type SearchFilters, type SearchHit, type SearchOutcome } from '../search/index';
+import {
+  ArkIndex,
+  type NearMatchMode,
+  type SearchFilters,
+  type SearchHit,
+  type SearchOutcome,
+} from '../search/index';
 import type { DocumentStore } from './documents.svelte';
 import type { DocumentSummary, Folder } from '../types';
 
@@ -12,15 +18,18 @@ export class SearchStore {
   author = $state<string | null>(null);
   includeTrashed = $state(false);
   /**
-   * Whether a query that matches nothing exactly may fall back to near
-   * matches. On by default: the fallback only fires when the exact search
-   * found nothing, so it costs an ordinary query nothing at all. Off is for
-   * someone who wants a plain "no results" and no guesses.
+   * How far a search may reach past what was typed — see `NearMatchMode`.
+   *
+   * `fallback` by default, and that default is load-bearing: the second pass
+   * only runs when the first found nothing, so an ordinary query costs
+   * exactly what it did before. `always` is the deliberate opt-in that finds
+   * a misspelling living in the archive, and it is a mode the user has to
+   * choose, because it also finds `bean` when you ask for `jean`.
    *
    * Here beside `from`/`to`/`author` rather than in the view, so every path
    * that runs a search — including `unscopedCount` — asks the same question.
    */
-  nearMatches = $state(true);
+  nearMatches = $state<NearMatchMode>('fallback');
   // Search is global unless the user explicitly opts in to a folder scope —
   // it must never be inherited from whatever happens to be selected in the
   // tree (that was the reported bug: a search silently scoped to the
