@@ -39,7 +39,7 @@ Commands:
 | typecheck | `npm run typecheck -w ui` | must stay 0 errors, 0 warnings |
 | e2e | `npm run test:e2e -w ui` | headless Chromium, ~6s, no display needed |
 | DNA | `nix develop -c npm test` | minutes; only if you touch Rust |
-| the app | `nix develop -c npm run applet-dev-1` | needs a display — **you do not have one** |
+| the app | `nix develop -c npm run start:moss-1` | needs a display — **you do not have one** |
 
 There is **no display server**. You cannot see the app. Playwright headless is
 your substitute and it is a good one — use it rather than reasoning about what
