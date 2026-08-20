@@ -306,21 +306,36 @@
     />
     <!-- Folder scope: an explicit, visible opt-in rather than anything
          inherited from the tree. `search.folderScope` only ever changes here
-         — set by clicking the offer, cleared by dismissing the chip. -->
+         — set by clicking the offer, cleared by dismissing the chip.
+
+         Both controls stay in the bar rather than folding into the Filters
+         panel, and a long folder name is handled by truncating the pixels,
+         never by hiding the control: a filter that narrows results with no
+         visible sign is the exact bug the chip exists to prevent.
+
+         Truncation is CSS only (`.scope-label` / `.scope-offer` below), so
+         the whole path stays in the text content — which is what a screen
+         reader reads, and what the dismiss button's own label repeats — and
+         `title` puts it on hover for everyone else. -->
     {#if search.folderScope}
-      <span class="scope-chip">
-        in {search.folderScope.label}
+      <span class="scope-chip" title={`Search scoped to ${search.folderScope.label}`}>
+        <span class="scope-label">in {search.folderScope.label}</span>
         <button
           type="button"
           class="scope-dismiss"
-          aria-label="Remove folder scope"
+          aria-label={`Remove folder scope ${search.folderScope.label}`}
           onclick={clearScope}
         >
           ✕
         </button>
       </span>
     {:else if scopeOfferLabel}
-      <button type="button" class="scope-offer" onclick={enableScope}>
+      <button
+        type="button"
+        class="scope-offer"
+        title={`Scope search to ${scopeOfferLabel}`}
+        onclick={enableScope}
+      >
         Scope to {scopeOfferLabel}
       </button>
     {/if}
@@ -466,13 +481,22 @@
   }
   .bar {
     display: flex;
+    /* Wrapping and truncation are two different fixes for two different
+       problems, and it takes both to keep the input usable: truncation
+       handles a long folder name, wrapping handles a narrow screen. Without
+       this the row could only compress its children, and the input — the one
+       flexible item — absorbed every pixel the scope control took. */
+    flex-wrap: wrap;
     gap: 0.5rem;
     align-items: center;
     padding: 0.5rem;
   }
   .bar input[type='search'] {
-    flex: 1;
-    min-width: 0;
+    /* A floor nothing in the bar can push it under. `min-width: 0` let the
+       scope chip squeeze it to a few characters; below about this width it
+       stops being a search box at all, so the bar wraps instead. */
+    flex: 1 1 10rem;
+    min-width: 10rem;
     box-sizing: border-box;
     font: inherit;
     padding: 0.3rem 0.5rem;
@@ -480,7 +504,12 @@
   .scope-offer,
   .scope-chip {
     flex: none;
+    /* Visual truncation only — see the markup: the text content, and so the
+       accessible name, still carries the whole folder path. */
+    max-width: 14rem;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-size: 0.85em;
     border-radius: 999px;
     padding: 0.2rem 0.6rem;
@@ -497,7 +526,18 @@
     border: 1px solid currentColor;
     background: rgba(120, 150, 220, 0.15);
   }
+  /* The chip is a flex row, so the ellipsis has to go on the text itself —
+     `overflow` on the chip alone would just clip the ✕ off the end. */
+  .scope-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .scope-dismiss {
+    /* Never the item that shrinks: the way out of a scope has to stay
+       clickable at every width. */
+    flex: none;
     background: none;
     border: none;
     padding: 0;
