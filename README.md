@@ -46,19 +46,19 @@ work.
 Two agents, each in their own Moss window, sharing a group:
 
 ```bash
-npm run applet-dev
+npm run start:moss
 ```
 
 One agent, for when a second one is just in the way:
 
 ```bash
-npm run applet-dev-1
+npm run start:moss-1
 ```
 
 Three, for watching structure changes propagate:
 
 ```bash
-npm run applet-dev-3
+npm run start:moss-3
 ```
 
 ## Running it without Moss

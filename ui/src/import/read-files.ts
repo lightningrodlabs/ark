@@ -14,7 +14,7 @@ import type { ImportFile } from './importer';
  *
  * The evidence points at how many reads were started at once. The whole folder
  * fails in live Moss; a smaller subset of the SAME folder imports fine; and the
- * whole folder also imports fine under `applet-dev`, where the applet is served
+ * whole folder also imports fine under `start:moss`, where the applet is served
  * from vite over `http://localhost:8888` rather than the packaged UI over the
  * `applet://` scheme. Size is what separates the two live runs, so the panel's
  * old `Promise.all` over every picked markdown file is the trigger, and the

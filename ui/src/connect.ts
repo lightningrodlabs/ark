@@ -17,7 +17,7 @@ export interface ConnectDeps {
  * Decide how to reach the conductor.
  *
  * `initializeHotReload()` MUST run before `isWeaveContext()` is consulted. In
- * `applet-dev` the applet is served by vite and loaded into a Moss iframe, and
+ * `start:moss` the applet is served by vite and loaded into a Moss iframe, and
  * that handshake is what makes `isWeaveContext()` report true. Checking first
  * and initialising second means Moss is never detected, so the code falls
  * through to `AppWebsocket.connect()` and dies with

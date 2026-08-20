@@ -327,7 +327,7 @@
     <p class="failed">
       None of the {readFailures.length} markdown file(s) attempted could be read — not one.
       That points at this environment rather than at the files themselves: reading a picked
-      file can behave differently in Moss than it does under <code>applet-dev</code>. Please
+      file can behave differently in Moss than it does under <code>npm run start:moss</code>. Please
       report it with the message below.
     </p>
     {#if readStoppedEarly}

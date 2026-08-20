@@ -32,7 +32,7 @@ function deps(over: Partial<ConnectDeps> = {}) {
 describe('connectClient', () => {
   it('initialises hot reload BEFORE asking whether this is a weave context', async () => {
     // The regression this guards: checking first and initialising second means
-    // Moss is never detected in `applet-dev`, so the app falls through to the
+    // Moss is never detected in `start:moss`, so the app falls through to the
     // websocket and dies with ConnectionUrlMissing. Invisible outside Moss.
     const { d, calls } = deps();
     await connectClient(d);

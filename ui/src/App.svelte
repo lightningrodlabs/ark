@@ -127,7 +127,7 @@
       } else {
         // Ordering lives in connect.ts and is unit-tested there: hot reload
         // must be initialised before isWeaveContext() is consulted, or Moss is
-        // never detected in applet-dev.
+        // never detected in start:moss.
         client = await connectClient({
           isDev: import.meta.env.DEV,
           isWeaveContext,
