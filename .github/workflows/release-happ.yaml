@@ -71,9 +71,12 @@ jobs:
             `ark.webhapp` is the file to install as a Moss tool. `ark.happ` is
             the backend alone, for anyone embedding it elsewhere.
 
-            Coordinator zomes are `wasm-opt -Oz`'d; integrity zomes are not, so
-            the DNA hash matches a plain `npm run build:happ` of the same
-            commit — a release build and a dev build join the same network.
+            Every zome is `wasm-opt -Oz`'d, integrity zomes included. **This
+            artifact defines the canonical ark network.** A local
+            `npm run build:happ` produces a different DNA hash and therefore a
+            separate network, on purpose — development builds must not gossip
+            into a community's archive. Anything meant for real use comes from
+            a release.
           # Draft so a human decides when the artifact becomes public: a
           # curation library entry points at these URLs, and an accidental
           # publish is awkward to retract.
