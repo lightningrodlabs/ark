@@ -48,6 +48,7 @@ const filters = {
   to: null,
   author: null,
   includeTrashed: false,
+  nearMatches: true,
 };
 
 describe('search performance at corpus scale', () => {
@@ -74,7 +75,7 @@ describe('search performance at corpus scale', () => {
     const queries = ['budget', 'roof repair', '"well pump"', 'treasur', 'minutes -draft'];
     for (const query of queries) {
       const start = performance.now();
-      const hits = index.search(query, filters);
+      const hits = index.search(query, filters).hits;
       const elapsed = performance.now() - start;
       console.log(`query ${JSON.stringify(query)}: ${Math.round(elapsed)}ms, ${hits.length} hits`);
       expect(elapsed, query).toBeLessThan(QUERY_BUDGET_MS);

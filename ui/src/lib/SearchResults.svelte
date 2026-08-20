@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SearchHit } from '../search/index';
   import { segments } from '../search/segments';
+  import { mergeRanges, termRanges } from '../search/terms';
   import { key } from '../stores/documents.svelte';
   import { listen } from './listen';
 
@@ -23,6 +24,20 @@
     onSelect: (hit: SearchHit) => void;
     onHover: (index: number) => void;
   } = $props();
+
+  /**
+   * The title, with whatever this hit matched marked in it.
+   *
+   * A hit whose term is only in the title used to render with a body snippet
+   * and no marks anywhere on the row — a result the app could not point at,
+   * which is the same defect as the fuzzy hits that started this. Marked with
+   * the hit's own terms, so the row, the snippet and the document the row
+   * opens all agree.
+   */
+  function titleSegments(hit: SearchHit) {
+    const text = hit.doc.meta.title ?? '(untitled)';
+    return segments({ text, marks: mergeRanges(termRanges(text, hit.highlight)) });
+  }
 
   let list: HTMLElement | undefined = $state();
 
@@ -49,7 +64,10 @@
       use:listen={{ click: () => onSelect(hit), mousemove: () => onHover(i) }}
     >
       <div class="head">
-        <span class="title">{hit.doc.meta.title ?? '(untitled)'}</span>
+        <span class="title"
+          >{#each titleSegments(hit) as segment}{#if segment.marked}<mark>{segment.text}</mark
+            >{:else}{segment.text}{/if}{/each}</span
+        >
         <span class="date">{hit.doc.meta.date ?? ''}</span>
       </div>
       <div class="where">
@@ -114,6 +132,7 @@
     font-size: 0.9em;
     opacity: 0.85;
   }
+  .title mark,
   .snippet mark {
     background: rgba(250, 220, 90, 0.5);
     color: inherit;

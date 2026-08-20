@@ -22,7 +22,7 @@
   import { listen } from './lib/listen';
   import { trashEntries, type TrashEntry } from './stores/orphans';
   import { folderPathLabel } from './tree/paths';
-  import type { SearchHit } from './search/index';
+  import type { SearchHit, SearchOutcome } from './search/index';
   import type { ActionHash } from '@holochain/client';
   import type { DocumentSummary } from './types';
   import './shoelace';
@@ -307,12 +307,17 @@
         search.includeTrashed),
   );
 
-  let searchResults = $derived.by(() => {
+  // The whole outcome, not just the rows: a result set that came from near
+  // matches has to carry that fact to the bar, which says so. Silently
+  // returning the rows alone is how "84 results for asdf" looked like an
+  // answer in the first place.
+  const NO_RESULTS: SearchOutcome = { hits: [], nearMatch: null };
+  let searchOutcome = $derived.by<SearchOutcome>(() => {
     // No answers at all until the index covers the whole corpus — see the
     // SearchStore.rebuild() call in onMount. A partial index does not return
     // fewer results in some visible way; it returns a confident, wrong answer.
-    if (loadingDocs) return [];
-    if (!search || !tree || !searching) return [];
+    if (loadingDocs) return NO_RESULTS;
+    if (!search || !tree || !searching) return NO_RESULTS;
     // Global by default: folder scope comes only from search.folderScope, an
     // explicit opt-in the user turns on in SearchBar, never from
     // `selectedFolder` — see SearchBar's scope chip.
@@ -605,14 +610,15 @@
         <button class="new-doc" onclick={newDoc}>New document</button>
       </div>
       {#if search}
-        <!-- `search?.highlightTerms()` below is optional only because the
+        <!-- `search?.highlightTerms(hit)` below is optional only because the
              narrowing from {#if search} does not follow into a callback —
              there is no search bar to select a hit from before the store
              exists. -->
         <div class="search-slot">
           <SearchBar
             {search}
-            hits={searchResults}
+            hits={searchOutcome.hits}
+            nearMatch={searchOutcome.nearMatch}
             {searching}
             loading={loadingDocs}
             loaded={store.loaded}
@@ -621,7 +627,7 @@
             {authors}
             {selectedFolder}
             folders={tree.live}
-            onSelect={(hit) => openDoc(hit.doc, search?.highlightTerms() ?? [])}
+            onSelect={(hit) => openDoc(hit.doc, search?.highlightTerms(hit) ?? [])}
           />
         </div>
       {/if}

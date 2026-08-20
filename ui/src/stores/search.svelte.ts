@@ -1,6 +1,5 @@
 import type { ActionHash } from '@holochain/client';
-import { ArkIndex, type SearchFilters, type SearchHit } from '../search/index';
-import { parseQuery } from '../search/query';
+import { ArkIndex, type SearchFilters, type SearchHit, type SearchOutcome } from '../search/index';
 import type { DocumentStore } from './documents.svelte';
 import type { DocumentSummary, Folder } from '../types';
 
@@ -12,6 +11,16 @@ export class SearchStore {
   to = $state<string | null>(null);
   author = $state<string | null>(null);
   includeTrashed = $state(false);
+  /**
+   * Whether a query that matches nothing exactly may fall back to near
+   * matches. On by default: the fallback only fires when the exact search
+   * found nothing, so it costs an ordinary query nothing at all. Off is for
+   * someone who wants a plain "no results" and no guesses.
+   *
+   * Here beside `from`/`to`/`author` rather than in the view, so every path
+   * that runs a search — including `unscopedCount` — asks the same question.
+   */
+  nearMatches = $state(true);
   // Search is global unless the user explicitly opts in to a folder scope —
   // it must never be inherited from whatever happens to be selected in the
   // tree (that was the reported bug: a search silently scoped to the
@@ -75,24 +84,28 @@ export class SearchStore {
       to: this.to,
       author: this.author,
       includeTrashed: this.includeTrashed,
+      nearMatches: this.nearMatches,
     };
   }
 
   /** Runs the current query, scoped to `folderScope` when one is set — never
    * to whatever is merely selected in the tree. */
-  run(folders: Folder[]): SearchHit[] {
+  run(folders: Folder[]): SearchOutcome {
     return this.index.search(this.query, this.filters(folders, this.folderScope?.id ?? null));
   }
 
   /**
-   * The literal strings the current query asks to see marked — phrases
-   * whole, exclusions never. Captured when a result is opened so the
-   * document that was landed on can highlight exactly what matched; the
-   * view layer stays out of the query parser the same way it stays out of
-   * the index.
+   * The strings to mark in the document a hit opens.
+   *
+   * Taken from the hit, not re-derived from the query. Re-parsing the query
+   * was right only while every hit was guaranteed to contain it: a
+   * near-match hit for `asdf` matched the index term `asif`, so a document
+   * opened from it marked nothing — the same blank result the snippet bug
+   * showed, in a second place. The hit already carries what it matched, and
+   * that is the one list both highlight paths must agree on.
    */
-  highlightTerms(): string[] {
-    return parseQuery(this.query).highlight;
+  highlightTerms(hit: SearchHit): string[] {
+    return hit.highlight;
   }
 
   /**
@@ -104,6 +117,6 @@ export class SearchStore {
    */
   unscopedCount(folders: Folder[]): number {
     if (!this.folderScope) return 0;
-    return this.index.search(this.query, this.filters(folders, null)).length;
+    return this.index.search(this.query, this.filters(folders, null)).hits.length;
   }
 }
