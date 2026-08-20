@@ -85,18 +85,77 @@
   const optionId = (i: number) => `ark-search-option-${i}`;
 
   /**
-   * How many result rows reach the DOM.
+   * How many result rows reach the DOM, and how that number grows.
    *
    * A one-word query over the reference archive matches nearly all of it —
-   * "treasurer" returns 1396 of 1406 — and rendering a row each cost about
-   * 400ms to build a list nobody scrolls to the end of. The panel is height
-   * capped and scrolls internally, so rows past the cap were never going to
-   * be read; the honest thing is to render the best ones and say how many
-   * there are in total. Same convention as DocSearch and VS Code's search.
+   * "treasurer" returns 1396 of 1406 — so the list opens at one page rather
+   * than rendering a row per hit for an answer nobody has looked at yet. It
+   * was a hard cap, which made everything past the fiftieth hit unreachable:
+   * the panel scrolls only over the rows it rendered, and the arrow keys
+   * wrapped within them.
+   *
+   * `search.run()` already returns every hit in memory, so revealing more
+   * costs DOM and nothing else — no fetch, no async, no spinner. The list
+   * therefore grows on request, three ways that all land on `extend()`:
+   * scrolling to the bottom of the panel, the button at the end of the list,
+   * and arrowing past the last row. The count line says how many of the total
+   * are showing, so a grown list is never mistaken for the whole answer.
    */
-  const MAX_ROWS = 50;
-  let visible = $derived(hits.slice(0, MAX_ROWS));
-  let capped = $derived(hits.length > visible.length);
+  const PAGE = 50;
+  let shown = $state(PAGE);
+  let visible = $derived(hits.slice(0, shown));
+  let more = $derived(hits.length > visible.length);
+  /** How many the next extension would add — the last one is usually short. */
+  let nextPage = $derived(Math.min(PAGE, hits.length - visible.length));
+
+  /**
+   * The panel's own scroll container. The panel is height capped and scrolls
+   * internally, so this element — not the window — is what "scrolled near the
+   * bottom" is about.
+   */
+  let scroller: HTMLElement | undefined = $state();
+  const NEAR_BOTTOM = 64;
+  /**
+   * The `scrollHeight` at which the last scroll-driven extension fired.
+   *
+   * A fling delivers a burst of scroll events, and every one of them reads
+   * the same pre-extension `scrollHeight` because the DOM has not been
+   * updated yet. Keying off that height makes all but the first a no-op, so
+   * one gesture adds one page instead of running straight to 1396 rows.
+   * Deliberately not a timer: the thing that makes another extension
+   * legitimate is new content, not elapsed time.
+   */
+  let extendedAtHeight = -1;
+
+  function extend() {
+    shown += PAGE;
+  }
+
+  /**
+   * Treat the current content height as already extended.
+   *
+   * Focusing an element the browser has to scroll to — which is exactly what
+   * Tab onto the "show more" button does — produces a scroll event at the
+   * bottom of the container, and without this the list would grow the instant
+   * the keyboard reached the button and carry it out from under the focus
+   * ring. The button is the deliberate action for that user; reaching it must
+   * not pre-empt it.
+   */
+  function parkScrollTrigger() {
+    if (scroller) extendedAtHeight = scroller.scrollHeight;
+  }
+
+  // Appending below never moves `scrollTop`, so the rows someone is reading
+  // stay exactly where they were — growing a list under the cursor mid-read
+  // would be worse than the cap ever was.
+  function maybeExtend() {
+    if (!scroller || !more) return;
+    const { scrollHeight, scrollTop, clientHeight } = scroller;
+    if (scrollHeight === extendedAtHeight) return;
+    if (scrollHeight - scrollTop - clientHeight > NEAR_BOTTOM) return;
+    extendedAtHeight = scrollHeight;
+    extend();
+  }
 
   // An empty query with no filters is not a search — nothing to float over the
   // tree. `searching` is the app's own definition of that, reused rather than
@@ -111,26 +170,72 @@
     searching && !dismissed && (loading || hits.length > 0 || unscopedFallbackCount > 0),
   );
 
-  // Any change to the query or filters is a fresh search: re-open an overlay
-  // Escape closed, and drop an active row that no longer refers to the same
-  // result. Reading these three keeps the effect subscribed to them.
-  $effect(() => {
-    search.query;
-    search.from;
-    search.to;
-    search.author;
-    search.includeTrashed;
+  /**
+   * Reads every input that makes this a *different* search, so an effect that
+   * calls it is subscribed to all of them. Two effects need exactly this set
+   * and have to run on opposite sides of the DOM update, which is the only
+   * reason it is a function rather than a list of statements.
+   */
+  function searchIdentity() {
+    return [
+      search.query,
+      search.from,
+      search.to,
+      search.author,
+      search.includeTrashed,
+      search.folderScope?.id ?? null,
+    ];
+  }
+
+  // Any change to the query, the filters or the folder scope is a fresh
+  // search: re-open an overlay Escape closed, drop an active row that no
+  // longer refers to the same result, and put the list back to one page — a
+  // new search inheriting the previous one's grown length would render
+  // hundreds of rows for a query the user has not even looked at yet.
+  //
+  // `$effect.pre` rather than `$effect`: it runs BEFORE the DOM is updated,
+  // so the reset lands in the same flush as the new hits. A post-effect would
+  // paint one frame of the old length against the new hit list first, which
+  // is precisely the hundreds of rows this is here to avoid.
+  $effect.pre(() => {
+    searchIdentity();
     dismissed = false;
     activeIndex = -1;
+    shown = PAGE;
+    extendedAtHeight = -1;
+  });
+
+  // A new search starts at the top of its own results. Without this the
+  // container keeps the scroll offset of the previous, longer list; the
+  // browser clamps that offset against the shorter one, and the clamp arrives
+  // as a scroll event sitting at the bottom — which extends the fresh list
+  // straight back out to the length the reset just undid. Runs AFTER the DOM
+  // update, unlike the reset above, because there is nothing to scroll until
+  // the shorter list exists.
+  $effect(() => {
+    searchIdentity();
+    if (scroller) scroller.scrollTop = 0;
   });
 
   function move(delta: number) {
     if (visible.length === 0) return;
     dismissed = false;
     const next = activeIndex + delta;
-    // Wrap at both ends, so ArrowUp from the input goes straight to the last
-    // result the way every command palette does.
-    activeIndex = next < 0 ? visible.length - 1 : next >= visible.length ? 0 : next;
+    if (next >= visible.length) {
+      // Past the last rendered row. While hits remain, reveal the next page
+      // rather than wrapping: the keyboard has to be able to reach the whole
+      // hit list, not just the page the scroll wheel happens to have grown.
+      if (more) {
+        extend();
+        activeIndex = next;
+        return;
+      }
+      // Everything is shown, so wrap as before — what every command palette
+      // does, and what makes ArrowUp from the input land on the last result.
+      activeIndex = 0;
+      return;
+    }
+    activeIndex = next < 0 ? visible.length - 1 : next;
   }
 
   function choose(hit: SearchHit) {
@@ -292,10 +397,15 @@
           </p>
         {:else}
           <div class="panel-head">
+            <!-- Both numbers, always, and only while they differ: a grown
+                 list must never be mistaken for the whole answer, and a list
+                 that IS the whole answer must not imply there is more. -->
             <span class="panel-count">
-              {hits.length} result{hits.length === 1 ? '' : 's'}{capped
-                ? `, showing the first ${visible.length}`
-                : ''}
+              {#if more}
+                showing {visible.length} of {hits.length} results
+              {:else}
+                {hits.length} result{hits.length === 1 ? '' : 's'}
+              {/if}
             </span>
             <span class="panel-hint">↑↓ to move · Enter to open · Esc to close</span>
           </div>
@@ -311,15 +421,38 @@
               <button type="button" onclick={clearScope}>Search everywhere</button>
             </p>
           {/if}
-          <SearchResults
-            hits={visible}
-            {activeIndex}
-            listId={LIST_ID}
-            {optionId}
-            {locationOf}
-            onSelect={choose}
-            onHover={(i) => (activeIndex = i)}
-          />
+          <!-- The scroll container the list grows inside. It wraps the list
+               AND the button so the button travels with the end of the list
+               rather than sitting pinned below it, and so `onscroll` observes
+               the element that actually scrolls. -->
+          <div class="panel-scroll" bind:this={scroller} onscroll={maybeExtend}>
+            <SearchResults
+              hits={visible}
+              {activeIndex}
+              listId={LIST_ID}
+              {optionId}
+              {locationOf}
+              onSelect={choose}
+              onHover={(i) => (activeIndex = i)}
+            />
+            <!-- Not optional, and deliberately outside the listbox rather
+                 than a row inside it: scroll-triggered loading alone is
+                 unreachable by keyboard and invisible to a screen reader,
+                 and a <button> among role="option" children would be
+                 unreachable a different way. A plain focusable button after
+                 the list is both announced and tabbable. -->
+            {#if more}
+              <button
+                type="button"
+                class="show-more"
+                aria-label={`Show ${nextPage} more results — ${hits.length - visible.length} of ${hits.length} not shown yet`}
+                onfocus={parkScrollTrigger}
+                onclick={extend}
+              >
+                Show {nextPage} more
+              </button>
+            {/if}
+          </div>
         {/if}
       </div>
     {/if}
@@ -430,8 +563,32 @@
     border-bottom: 1px solid rgba(128, 128, 128, 0.25);
     flex: none;
   }
-  .panel :global(.results) {
+  /* The one thing in the panel that scrolls — the list plus the "show more"
+     button that ends it, so the button is reached by scrolling to the end of
+     the results rather than sitting pinned below them. `min-height: 0` is
+     what lets a flex item shrink below its content and actually scroll. */
+  .panel-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
+  }
+  .show-more {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.6rem 0.75rem;
+    font: inherit;
+    font-size: 0.9em;
+    text-align: center;
+    background: none;
+    color: inherit;
+    border: none;
+    border-top: 1px solid rgba(128, 128, 128, 0.25);
+    cursor: pointer;
+  }
+  .show-more:hover,
+  .show-more:focus-visible {
+    background: rgba(120, 150, 220, 0.18);
   }
   .count {
     opacity: 0.7;
