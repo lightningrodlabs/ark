@@ -13,6 +13,7 @@
     type ImportFile,
     type ImportPlan,
   } from '../import/importer';
+  import { readTextFiles, type ReadFailure } from '../import/read-files';
 
   let {
     ark,
@@ -48,6 +49,20 @@
   // the same directory as the document.
   let candidates = $state<{ name: string; file: File }[]>([]);
   let plan = $state<ImportPlan | null>(null);
+  /**
+   * Reading the picked files is itself a phase with a duration — 1406 markdown
+   * files out of the reference archive's 4251 — and it used to be an invisible
+   * one. "After choosing the file to import I see the number 4251, but the next
+   * step never happens" is what a silent read phase looks like from outside,
+   * whether it is slow or has died.
+   */
+  let reading = $state(false);
+  let readDone = $state(0);
+  let readTotal = $state(0);
+  /** Picked files whose contents could not be read, named so they can be found. */
+  let readFailures = $state<ReadFailure[]>([]);
+  /** A failure in `choose` itself, rather than in one file's read. */
+  let chooseError = $state<string | null>(null);
   let running = $state(false);
   let progress = $state(0);
   /**
@@ -70,24 +85,75 @@
 
   $effect(() => onRunningChange?.(running));
 
+  /**
+   * Every markdown file the user picked failed to read — not one of them
+   * worked.
+   *
+   * Worth telling apart from "one file is bad", because it is a different
+   * problem with a different owner. A single failure is a file; a clean sweep
+   * is the environment. Whoever hits this needs to know which of the two they
+   * are looking at before they start hunting for a corrupt file that does not
+   * exist — and the packaged applet has already proved it will refuse reads
+   * that vite-served dev allows.
+   *
+   * State rather than `$derived` off `mdFiles`: `go()` clears `mdFiles` when a
+   * run finishes, which would turn a single reported failure into "none of
+   * them could be read" the moment the import completed.
+   */
+  let allReadsFailed = $state(false);
+
   const EMPTY_MATCH: AttachmentMatch = { byImportId: new Map(), unmatched: [] };
   let attachmentMatch = $derived(
     plan ? matchAttachments(plan.create, candidates) : EMPTY_MATCH,
   );
 
+  /**
+   * Read what the user picked and plan the import.
+   *
+   * Every line of this is inside the try. It is an async `onchange` handler, so
+   * anything that escapes it is an unhandled rejection with nowhere to go: the
+   * live failure was
+   * `Uncaught (in promise) NotReadableError: The requested file could not be
+   * read...`, after which `plan` was never assigned and the panel rendered
+   * nothing new. The user was left looking at the input's own file count with
+   * no way to tell a slow read from a dead one. The trigger was starting all
+   * 1409 reads at once (see read-files.ts), but the handler had no business
+   * swallowing a rejection either way: whatever makes a read fail next, it has
+   * to end up on screen.
+   */
   async function choose(event: Event) {
     const input = event.target as HTMLInputElement;
-    const picked = [...(input.files ?? [])];
-    const md = picked.filter((f) => f.name.toLowerCase().endsWith('.md'));
-    const rest = picked.filter((f) => !f.name.toLowerCase().endsWith('.md'));
-    // The relative path (not just the basename) is what lets matchAttachments
-    // tell two same-named attachments in different meeting folders apart.
-    mdFiles = await Promise.all(
-      md.map(async (f) => ({ name: f.webkitRelativePath || f.name, text: await f.text() })),
-    );
-    candidates = rest.map((f) => ({ name: f.webkitRelativePath || f.name, file: f }));
-    plan = planImport(mdFiles, [...store.byOriginal.values()], tree.folders);
+    plan = null;
     summary = null;
+    mdFiles = [];
+    candidates = [];
+    readFailures = [];
+    allReadsFailed = false;
+    chooseError = null;
+    reading = true;
+    readDone = 0;
+    readTotal = 0;
+    try {
+      const picked = [...(input.files ?? [])];
+      const md = picked.filter((f) => f.name.toLowerCase().endsWith('.md'));
+      const rest = picked.filter((f) => !f.name.toLowerCase().endsWith('.md'));
+      // Bounded, retried, and reporting per-file failures rather than throwing
+      // on the first one — see read-files.ts. A single unreadable file out of
+      // 1406 costs the user that file, not the import.
+      const { read, failed } = await readTextFiles(md, (done, total) => {
+        readDone = done;
+        readTotal = total;
+      });
+      mdFiles = read;
+      readFailures = failed;
+      allReadsFailed = failed.length > 0 && read.length === 0;
+      candidates = rest.map((f) => ({ name: f.webkitRelativePath || f.name, file: f }));
+      plan = planImport(mdFiles, [...store.byOriginal.values()], tree.folders);
+    } catch (e) {
+      chooseError = String(e);
+    } finally {
+      reading = false;
+    }
   }
 
   /**
@@ -199,6 +265,40 @@
   </p>
   <input type="file" multiple webkitdirectory onchange={choose} />
 
+  {#if reading}
+    <p class="reading">Reading {readDone}/{readTotal} file(s)…</p>
+  {/if}
+
+  {#if chooseError}
+    <p class="failed">The files you picked could not be read: {chooseError}</p>
+  {/if}
+
+  {#if allReadsFailed}
+    <p class="failed">
+      None of the {readFailures.length} markdown file(s) you picked could be read — not one.
+      That points at this environment rather than at the files themselves: reading a picked
+      file can behave differently in Moss than it does under <code>applet-dev</code>. Please
+      report it with the message below.
+    </p>
+    <ul class="failed-list">
+      {#each readFailures.slice(0, 10) as failure}
+        <li>{failure.name} — {failure.error}</li>
+      {/each}
+      {#if readFailures.length > 10}
+        <li>…and {readFailures.length - 10} more.</li>
+      {/if}
+    </ul>
+  {:else if readFailures.length > 0}
+    <p class="failed">
+      {readFailures.length} file(s) could not be read and will not be imported:
+    </p>
+    <ul class="failed-list">
+      {#each readFailures as failure}
+        <li>{failure.name} — {failure.error}</li>
+      {/each}
+    </ul>
+  {/if}
+
   {#if plan}
     <ul class="summary">
       <li><strong>{plan.create.length}</strong> new document(s)</li>
@@ -272,5 +372,6 @@
   section > p:first-child { margin-top: 0; }
   .summary, .result, .failed-list { list-style: none; padding: 0; }
   .failed { color: #b91c1c; font-weight: bold; }
+  .reading { color: #57534e; }
   .warn { color: #92400e; }
 </style>
