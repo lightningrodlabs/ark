@@ -217,6 +217,16 @@ export async function runImport(
      * module does not depend on the store.
      */
     onAttachmentText?: (original: ActionHash, name: string, text: string) => void;
+    /**
+     * Called with the running count of documents created in THIS call, after
+     * each one lands. The caller slices a large import into batches, so a
+     * per-batch count is as fine-grained as the progress label could get
+     * without this: 25 documents on the reference archive is minutes of a
+     * frozen number, which is exactly what "the count did not update" is
+     * describing. Optional, and reports a count rather than taking the store,
+     * so this module keeps depending on nothing above it.
+     */
+    onProgress?: (created: number) => void;
   },
 ): Promise<{ created: number; attached: number; attachmentsFailed: string[] }> {
   const byPath = pathsOf(deps.folders);
@@ -255,6 +265,7 @@ export async function runImport(
         : null,
     });
     created++;
+    deps.onProgress?.(created);
 
     // Attachments are part of the archive, so a failure here is reported, not
     // thrown: losing the document because its budget spreadsheet would not
