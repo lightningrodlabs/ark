@@ -152,7 +152,7 @@ test('picking files whose reads all fail still leaves the panel saying so', asyn
 
   await page.setInputFiles('.pane-end input.pick-folder', goodDir);
 
-  await expect(panel(page)).toContainText('None of the 3 markdown file(s) you picked');
+  await expect(panel(page)).toContainText('None of the 3 markdown file(s) attempted');
   await expect(panel(page)).toContainText('points at this environment');
   await expect(panel(page).locator('.failed-list')).toContainText('fine-0.md');
   await expect(panel(page).locator('.failed-list li')).toHaveCount(3);

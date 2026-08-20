@@ -160,3 +160,42 @@ describe('readTextFiles', () => {
     expect(seen.at(-1)).toEqual([2, 2]);
   });
 });
+
+describe('circuit breaker', () => {
+  const unreadable = (name: string) =>
+    ({
+      name,
+      webkitRelativePath: '',
+      text: () => Promise.reject(new DOMException('nope', 'NotReadableError')),
+    }) as unknown as File;
+
+  const readable = (name: string) =>
+    ({ name, webkitRelativePath: '', text: () => Promise.resolve('body') }) as unknown as File;
+
+  it('stops attempting reads once a run of them has failed', async () => {
+    // The live failure mode: the environment refuses every read. Grinding
+    // through 1409 files, each with its retries and backoff, costs minutes
+    // before the user is told anything.
+    const files = Array.from({ length: 500 }, (_, i) => unreadable(`f${i}.md`));
+    const result = await readTextFiles(files);
+
+    expect(result.stoppedEarly).toBe(true);
+    expect(result.failed.length).toBeLessThan(100);
+    expect(result.skipped).toBeGreaterThan(300);
+    expect(result.failed.length + result.skipped).toEqual(500);
+  });
+
+  it('does not trip on scattered failures among successes', async () => {
+    // One unreadable file in every ten is bad luck, not a systemic refusal,
+    // and must still cost the user only those files.
+    const files = Array.from({ length: 200 }, (_, i) =>
+      i % 10 === 0 ? unreadable(`bad${i}.md`) : readable(`ok${i}.md`),
+    );
+    const result = await readTextFiles(files);
+
+    expect(result.stoppedEarly).toBe(false);
+    expect(result.skipped).toEqual(0);
+    expect(result.read).toHaveLength(180);
+    expect(result.failed).toHaveLength(20);
+  });
+});
