@@ -1,0 +1,81 @@
+name: release-happ
+
+# Manual on purpose. A release is a deliberate act, and this workflow is the
+# same file on `main` (Holochain 0.7) and `main-0.6`; which line you get is
+# decided by the branch you dispatch it from, and the tag says so.
+on:
+  workflow_dispatch:
+
+jobs:
+  publish-happ:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The same devshell the DNA tests use, so the release is built with the
+      # toolchain the tests validated rather than a second, subtly different
+      # one. It also supplies `wasm-opt` (binaryen), which package:release needs.
+      - uses: cachix/install-nix-action@v31
+      - uses: cachix/cachix-action@v16
+        with:
+          name: holochain-ci
+
+      - run: nix develop -c npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      # Cheap insurance: never publish an artifact from a tree whose own unit
+      # tests and typecheck do not pass.
+      - run: nix develop -c npm run verify
+
+      - name: Build the webhapp
+        run: nix develop -c npm run package:release
+
+      - name: Work out what this is
+        id: version
+        run: |
+          APP_VERSION=$(node -p "require('./ui/package.json').version")
+          # The Holochain line comes from the HDK the zomes are compiled
+          # against — that, not the branch name, is what decides which Moss a
+          # user can install this into.
+          # hdk's minor tracks the Holochain line one-for-one (hdk 0.6.x runs on
+          # Holochain 0.6.x). hdi does NOT — it sits one minor ahead — so the
+          # line must be read from hdk.
+          HDK=$(grep -oP '(?<=^hdk = \{ version = ")=?\K[0-9]+\.[0-9]+' Cargo.toml)
+          HC_LINE=$HDK
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_OUTPUT
+          echo "HC_LINE=$HC_LINE" >> $GITHUB_OUTPUT
+          echo "Ark $APP_VERSION for Holochain $HC_LINE (hdk $HDK)"
+
+      - name: Check the artifacts exist and are not empty
+        run: |
+          for f in workdir/ark.webhapp workdir/ark.happ; do
+            test -s "$f" || { echo "missing or empty: $f"; exit 1; }
+            echo "$(du -h "$f")"
+          done
+
+      - id: create-release
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          artifacts: 'workdir/ark.webhapp,workdir/ark.happ'
+          name: Ark v${{ steps.version.outputs.APP_VERSION }} (Holochain ${{ steps.version.outputs.HC_LINE }})
+          tag: ark-v${{ steps.version.outputs.APP_VERSION }}-hc${{ steps.version.outputs.HC_LINE }}
+          body: |
+            Ark v${{ steps.version.outputs.APP_VERSION }} for **Holochain ${{ steps.version.outputs.HC_LINE }}**.
+
+            `ark.webhapp` is the file to install as a Moss tool. `ark.happ` is
+            the backend alone, for anyone embedding it elsewhere.
+
+            Coordinator zomes are `wasm-opt -Oz`'d; integrity zomes are not, so
+            the DNA hash matches a plain `npm run build:happ` of the same
+            commit — a release build and a dev build join the same network.
+          # Draft so a human decides when the artifact becomes public: a
+          # curation library entry points at these URLs, and an accidental
+          # publish is awkward to retract.
+          draft: true
+          prerelease: true
