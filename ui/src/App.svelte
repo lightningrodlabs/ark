@@ -204,9 +204,18 @@
           }
           currentSearch.sync();
         },
-        async (source) => {
-          await reconcile(source, { tree: currentTree, store: currentStore, search: currentSearch });
-        },
+        (source) =>
+          reconcile(source, {
+            tree: currentTree,
+            store: currentStore,
+            search: currentSearch,
+            // An import writes for minutes on the cell this reconcile would
+            // read from, and refreshes the store itself when it finishes, so
+            // a tick landing in the middle of one has nothing to add and
+            // everything to slow down. Reported up by ImportPanel; read here
+            // at tick time rather than captured, so it is always current.
+            busy: () => importRunning,
+          }),
       );
       // A folder add/rename/reparent/delete changes which folder ids exist,
       // but DocumentStore.filings and its cached `lastFolders` (used by

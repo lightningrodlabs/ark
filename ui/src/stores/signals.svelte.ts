@@ -7,7 +7,7 @@ import {
 import type { WeaveClient } from '@theweave/api';
 import type { ArkClient } from '../ark-client';
 import type { ArkSignal } from '../types';
-import type { ReconcileSource } from '../reconcile';
+import type { ReconcileOutcome, ReconcileSource } from '../reconcile';
 
 export function peersExcludingSelf(all: AgentPubKey[], me: AgentPubKey): AgentPubKey[] {
   const mine = encodeHashToBase64(me);
@@ -50,7 +50,9 @@ export class SignalStore {
      * `focus` and `timer` may take the cheap path; `sweep` is the periodic
      * unconditional backstop — see `reconcile.ts`.
      */
-    private onReconcile: (source: ReconcileSource) => void | Promise<void>,
+    private onReconcile: (
+      source: ReconcileSource,
+    ) => ReconcileOutcome | void | Promise<ReconcileOutcome | void>,
   ) {}
 
   start(): void {
@@ -65,7 +67,7 @@ export class SignalStore {
     this.timer = setInterval(() => {
       this.ticks += 1;
       const source = this.ticks % FULL_SWEEP_EVERY === 0 ? 'sweep' : 'timer';
-      void this.maybeReconcile(source);
+      void this.tick(source);
     }, RECONCILE_INTERVAL_MS);
   }
 
@@ -75,6 +77,8 @@ export class SignalStore {
     if (this.timer) clearInterval(this.timer);
   }
 
+  // A focus reconcile is not part of the sweep schedule — it never was — so it
+  // goes straight to `maybeReconcile` and its outcome changes no counter.
   private focusHandler = () => void this.maybeReconcile('focus');
 
   /**
@@ -87,11 +91,38 @@ export class SignalStore {
    */
   private lastReconcileAt = 0;
   private ticks = 0;
-  private async maybeReconcile(source: ReconcileSource): Promise<void> {
+
+  /**
+   * A timer tick, plus the bookkeeping the sweep schedule depends on.
+   *
+   * The tick is counted optimistically above (the source has to be decided
+   * before the callback can be asked anything) and given back here if nothing
+   * actually ran. That matters only for the sweep, and it matters a lot: the
+   * sweep is the one pass that catches an amendment whose signal was dropped,
+   * so a sweep tick skipped during an import has to be retried on the next
+   * tick rather than counted as done and deferred another half hour.
+   */
+  private async tick(source: ReconcileSource): Promise<void> {
+    if (!(await this.maybeReconcile(source))) this.ticks -= 1;
+  }
+
+  /** Whether the reconcile actually ran. */
+  private async maybeReconcile(source: ReconcileSource): Promise<boolean> {
     const now = Date.now();
-    if (now - this.lastReconcileAt < RECONCILE_MIN_GAP_MS) return;
+    const previous = this.lastReconcileAt;
+    if (now - previous < RECONCILE_MIN_GAP_MS) return false;
+    // Claimed before the await rather than after it, so a focus event landing
+    // while a reconcile is still in flight cannot start a second one.
     this.lastReconcileAt = now;
-    await this.onReconcile(source);
+    // `skipped` means the callback made no zome call at all — the app said it
+    // was busy (see reconcile.ts). Holding the floor for a pass that never
+    // touched the cell would delay the first real reconcile after an import
+    // by another minute, for no work done.
+    if ((await this.onReconcile(source)) === 'skipped') {
+      this.lastReconcileAt = previous;
+      return false;
+    }
+    return true;
   }
 
   /**
