@@ -2,7 +2,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { createDocument, createRootFolder, selectFolder } from './helpers';
 
 /**
- * Near matches as a labelled fallback.
+ * Near matches as a labelled fallback, and the Filters control as a real
+ * toggle.
  *
  * The reported symptom was that highlighting stopped partway down a result
  * list. The cause was that every search ran fuzzy, so a hit did not have to
@@ -118,4 +119,62 @@ test('with near matches turned off the query returns nothing and says so plainly
   // And the switch does not touch a query that matches exactly.
   await page.locator('input[type="search"]').fill('jean');
   await expect(rows(page)).toHaveCount(1);
+});
+
+test('the Filters control is a toggle that reports and closes its own panel', async ({ page }) => {
+  await seed(page);
+  const toggle = page.getByRole('button', { name: 'Filters' });
+
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(toggle).toHaveAttribute('aria-controls', 'ark-search-filters');
+  await expect(page.locator('#ark-search-filters')).toHaveCount(0);
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#ark-search-filters')).toBeVisible();
+
+  // "You can't tell how to close the filters section": clicking it again does.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('#ark-search-filters')).toHaveCount(0);
+});
+
+test('Escape inside the filters panel closes it and returns focus to the toggle', async ({
+  page,
+}) => {
+  await seed(page);
+  const toggle = page.getByRole('button', { name: 'Filters' });
+  await toggle.click();
+
+  await page.locator('#ark-search-filters label', { hasText: 'From' }).locator('input').focus();
+  await page.keyboard.press('Escape');
+
+  await expect(page.locator('#ark-search-filters')).toHaveCount(0);
+  await expect(toggle).toBeFocused();
+});
+
+test('the funnel fills in whenever a filter is actually narrowing the search', async ({ page }) => {
+  await seed(page);
+  const toggle = page.getByRole('button', { name: 'Filters' });
+  const icon = toggle.locator('sl-icon');
+
+  await expect(icon).toHaveAttribute('name', 'funnel');
+  await expect(toggle.locator('.filter-dot')).toHaveCount(0);
+
+  await toggle.click();
+  await page.locator('#ark-search-filters label', { hasText: 'From' }).locator('input').fill('2026-02-01');
+
+  // Visible from the collapsed bar, not only from inside the panel — an
+  // invisible filter has already emptied this app's results once.
+  await toggle.click();
+  await expect(page.locator('#ark-search-filters')).toHaveCount(0);
+  await expect(icon).toHaveAttribute('name', 'funnel-fill');
+  await expect(toggle.locator('.filter-dot')).toBeVisible();
+
+  // Turning the near-match fallback off narrows results too, so it counts.
+  await toggle.click();
+  await page.locator('#ark-search-filters label', { hasText: 'From' }).locator('input').fill('');
+  await expect(icon).toHaveAttribute('name', 'funnel');
+  await page.getByLabel('Near matches when nothing matches exactly').uncheck();
+  await expect(icon).toHaveAttribute('name', 'funnel-fill');
 });
