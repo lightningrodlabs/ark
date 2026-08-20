@@ -46,7 +46,6 @@
   let signals: SignalStore | undefined = $state();
   let weaveClient: WeaveClient | undefined;
   let loadingDocs = $state(true);
-  let loaded = $state(0);
   let selectedFolder: string | null = $state(null);
   let selectedDoc: DocumentSummary | null = $state(null);
   // The terms to mark inside the open document. Non-empty only when the
@@ -180,12 +179,15 @@
         console.warn('appInfo failed; DNA hash unavailable', e);
       }
       tree = new TreeStore(ark);
+      // One call, and it is all the folder pane needs. Awaiting the corpus
+      // before rendering anything meant fifteen round trips of a blank page on
+      // the reference archive; the tree does not depend on documents having
+      // arrived, and the stores below are reactive, so everything is built and
+      // handed to the view BEFORE the corpus is paged in. `store.load` then
+      // fills it in progressively — see DocumentStore.loading.
       await tree.load();
       store = new DocumentStore(ark);
-      await store.load(tree.folders, (n) => (loaded = n));
       search = new SearchStore(store);
-      search.rebuild();
-      loadingDocs = false;
 
       const currentStore = store;
       const currentTree = tree;
@@ -219,6 +221,26 @@
         void currentStore.loadFilings(currentTree.folders);
         void signals?.broadcast({ type: 'TreeUpdated', action });
       };
+
+      // Everything above is synchronous once the tree is in, so the app is on
+      // screen by now. Only the corpus is still coming, a page at a time, and
+      // `store.byOriginal` grows with each one: folder counts, the document
+      // list and the progress banner all follow it without anything here
+      // pushing them.
+      await currentStore.load(currentTree.folders);
+      // Search is the one thing that needs the WHOLE corpus. An index built
+      // over a third of the archive answers, plausibly and silently, for a
+      // third of the archive — the failure this project has already shipped
+      // once (see SearchStore.folderScope). So the index is built in one pass
+      // at the end and the search bar refuses to answer until then, saying how
+      // far along it is; `loadingDocs` is what gates that, and it is the last
+      // thing to flip.
+      currentSearch.rebuild();
+      loadingDocs = false;
+
+      // Started only now: a remote signal or a reconcile landing mid-load
+      // would re-read filings and re-page the corpus underneath the load that
+      // is already doing exactly that.
       signals.start();
       await signals.refreshPeers(weaveClient, client.myPubKey);
       weaveClient?.onPeerStatusUpdate(() => {
@@ -263,6 +285,10 @@
   );
 
   let searchResults = $derived.by(() => {
+    // No answers at all until the index covers the whole corpus — see the
+    // SearchStore.rebuild() call in onMount. A partial index does not return
+    // fewer results in some visible way; it returns a confident, wrong answer.
+    if (loadingDocs) return [];
     if (!search || !tree || !searching) return [];
     // Global by default: folder scope comes only from search.folderScope, an
     // explicit opt-in the user turns on in SearchBar, never from
@@ -414,7 +440,14 @@
   // about yet reads identically to a genuinely unfiled one (see
   // DocumentStore.unfiled). Showing it here, next to "Move all here", risks
   // re-filing documents that were never actually unfiled.
-  let unfiledDocs = $derived(store && tree && !tree.structurePending ? store.unfiled() : []);
+  // Also suppressed for the whole initial load, for the same reason: a
+  // document whose page of the archive has not arrived yet has no filing on
+  // this device, which is indistinguishable from never having been filed.
+  // Offering "Move all here" over that would re-file documents that were
+  // never unfiled.
+  let unfiledDocs = $derived(
+    store && tree && !tree.structurePending && !loadingDocs ? store.unfiled() : [],
+  );
   let deletedBins = $derived(store && tree ? store.inDeletedFolders(tree.folders) : []);
   let trashList = $derived(store && tree ? trashEntries(store, tree.folders) : []);
 
@@ -477,10 +510,12 @@
     <AssetView doc={assetDoc} {ark} {files} />
   {:else if error}
     <p class="error">{error}</p>
-  {:else if !tree || !ark}
+  {:else if !tree || !ark || !store || !search || !signals}
+    <!-- Only the connection and the folder tree are waited on here — one zome
+         call each. The corpus is NOT: it used to replace the whole app with a
+         single line of text for as long as it took to page 1406 documents in,
+         which is the regression this branch exists to undo. -->
     <p>Connecting…</p>
-  {:else if !store || loadingDocs || !signals}
-    <p>Loading documents… {loaded}</p>
   {:else}
     <!-- A node can gossip in a document's filing link before the folder-tree
          entry that names its folder — the tree's root LINK arrives, but not
@@ -497,10 +532,23 @@
         This archive's folder structure has not finished arriving on this
         device yet, so folders and filings below may be incomplete — the
         Unfiled bin is hidden until they catch up so nothing gets re-filed by
-        mistake. {store.total !== null ? `${store.total - store.missing} of ${store.total}` : store.loaded}
-        document{store.total === 1 ? '' : 's'} already {store.total === 1 ? 'is' : 'are'} on this
+        mistake. {store.loaded}
+        document{store.loaded === 1 ? '' : 's'} already {store.loaded === 1 ? 'is' : 'are'} on this
         device and stay readable and searchable below. This resolves on its
         own as gossip completes.
+      </p>
+    {/if}
+
+    <!-- The initial load's only visible cost. Unobtrusive by design: it sits
+         beside the app rather than in front of it, and everything below it is
+         already usable — folders, the documents paged in so far, opening and
+         reading them. Search is the exception and says so itself (SearchBar),
+         because an index over part of the corpus answers for part of the
+         archive without admitting it. -->
+    {#if loadingDocs}
+      <p class="loading-note" data-testid="loading-note">
+        Loading the archive — {store.loaded} of {store.total ?? '?'} documents. Folders and
+        documents below are usable as they arrive; search waits for the whole archive.
       </p>
     {/if}
 
@@ -540,6 +588,9 @@
             {search}
             hits={searchResults}
             {searching}
+            loading={loadingDocs}
+            loaded={store.loaded}
+            total={store.total}
             {locationOf}
             {authors}
             {selectedFolder}
@@ -776,6 +827,17 @@
     background: #dbeafe;
     color: #1e3a8a;
     border-radius: 4px;
+    flex: none;
+  }
+  /* Quieter than either of the two above: nothing is wrong, the archive is
+     simply still arriving, and this line goes away on its own. */
+  .loading-note {
+    margin: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    background: rgba(128, 128, 128, 0.12);
+    border-radius: 4px;
+    font-size: 0.9em;
+    opacity: 0.85;
     flex: none;
   }
 </style>

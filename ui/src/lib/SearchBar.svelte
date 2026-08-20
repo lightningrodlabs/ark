@@ -12,6 +12,9 @@
     search,
     hits,
     searching,
+    loading = false,
+    loaded = 0,
+    total = null,
     locationOf,
     authors,
     selectedFolder,
@@ -22,6 +25,17 @@
     hits: SearchHit[];
     /** Whether a query or filter is in play at all. */
     searching: boolean;
+    /**
+     * Whether the corpus is still being paged in. Search covers the WHOLE
+     * archive or it says nothing: an index over the documents that happen to
+     * have arrived returns a confident answer about a fraction of the archive
+     * with no sign that it did, and there is no honest way to render that.
+     * So while this is true the bar answers with its progress instead.
+     */
+    loading?: boolean;
+    /** Documents in memory so far, and how many there will be, for that line. */
+    loaded?: number;
+    total?: number | null;
     locationOf: (hit: SearchHit) => string;
     /** Distinct authors across the archive: base64 key (for matching against
      * search.author) plus the raw agent key AgentAvatar needs to resolve a
@@ -90,7 +104,12 @@
   // scoped search with zero hits still opens when the same query would find
   // something outside the scope — the fallback prompt below is the whole
   // point, and it must be visible, not hidden behind an empty-looking bar.
-  let open = $derived(searching && !dismissed && (hits.length > 0 || unscopedFallbackCount > 0));
+  // `loading` opens it too: a query typed during the initial load must get an
+  // explicit "not yet, N of M" rather than an empty bar, which reads exactly
+  // like "nothing in this archive matches".
+  let open = $derived(
+    searching && !dismissed && (loading || hits.length > 0 || unscopedFallbackCount > 0),
+  );
 
   // Any change to the query or filters is a fresh search: re-open an overlay
   // Escape closed, and drop an active row that no longer refers to the same
@@ -201,7 +220,13 @@
       </button>
     {/if}
     <button class="filters-toggle" onclick={() => (showFilters = !showFilters)}>Filters</button>
-    <span class="count">{hits.length} result{hits.length === 1 ? '' : 's'}</span>
+    <!-- "0 results" during the load would be a lie by omission — there is no
+         result count yet, only a load. -->
+    {#if loading}
+      <span class="count">{loaded} of {total ?? '?'} loaded</span>
+    {:else}
+      <span class="count">{hits.length} result{hits.length === 1 ? '' : 's'}</span>
+    {/if}
   </div>
 
   {#if showFilters}
@@ -256,35 +281,46 @@
   >
     {#if open}
       <div class="panel">
-        <div class="panel-head">
-          <span class="panel-count">
-            {hits.length} result{hits.length === 1 ? '' : 's'}{capped
-              ? `, showing the first ${visible.length}`
-              : ''}
-          </span>
-          <span class="panel-hint">↑↓ to move · Enter to open · Esc to close</span>
-        </div>
-        <!-- The scoped-zero-results fallback (item 3 of the search-scope
-             fix): a scoped search finding nothing must say so and offer the
-             way out, rather than looking exactly like "no matches anywhere",
-             which is a milder form of the bug this whole feature exists to
-             fix. -->
-        {#if hits.length === 0 && unscopedFallbackCount > 0}
-          <p class="scope-empty">
-            No results in {search.folderScope?.label}. {unscopedFallbackCount} found in the whole
-            archive.
-            <button type="button" onclick={clearScope}>Search everywhere</button>
+        {#if loading}
+          <!-- Deliberately the whole panel, not a note above a result list:
+               there IS no result list worth showing. Searching a partial
+               corpus silently is the one outcome this refuses, so the query
+               simply waits, and re-runs on its own once the load finishes. -->
+          <p class="search-loading" data-testid="search-loading">
+            Still loading the archive — {loaded} of {total ?? '?'} documents. Search covers the
+            whole archive, so it runs as soon as the load finishes.
           </p>
+        {:else}
+          <div class="panel-head">
+            <span class="panel-count">
+              {hits.length} result{hits.length === 1 ? '' : 's'}{capped
+                ? `, showing the first ${visible.length}`
+                : ''}
+            </span>
+            <span class="panel-hint">↑↓ to move · Enter to open · Esc to close</span>
+          </div>
+          <!-- The scoped-zero-results fallback (item 3 of the search-scope
+               fix): a scoped search finding nothing must say so and offer the
+               way out, rather than looking exactly like "no matches anywhere",
+               which is a milder form of the bug this whole feature exists to
+               fix. -->
+          {#if hits.length === 0 && unscopedFallbackCount > 0}
+            <p class="scope-empty">
+              No results in {search.folderScope?.label}. {unscopedFallbackCount} found in the whole
+              archive.
+              <button type="button" onclick={clearScope}>Search everywhere</button>
+            </p>
+          {/if}
+          <SearchResults
+            hits={visible}
+            {activeIndex}
+            listId={LIST_ID}
+            {optionId}
+            {locationOf}
+            onSelect={choose}
+            onHover={(i) => (activeIndex = i)}
+          />
         {/if}
-        <SearchResults
-          hits={visible}
-          {activeIndex}
-          listId={LIST_ID}
-          {optionId}
-          {locationOf}
-          onSelect={choose}
-          onHover={(i) => (activeIndex = i)}
-        />
       </div>
     {/if}
   </sl-popup>
@@ -345,6 +381,12 @@
   }
   .scope-empty button {
     margin-left: 0.35rem;
+  }
+  .search-loading {
+    margin: 0;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.9em;
+    opacity: 0.8;
   }
   .panel {
     display: flex;
