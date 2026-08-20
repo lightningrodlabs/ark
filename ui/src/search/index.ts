@@ -13,14 +13,33 @@ export interface SearchFilters {
   author: string | null;
   includeTrashed: boolean;
   /**
-   * Whether a query that matches nothing exactly may fall back to near
-   * matches. Not a post-filter like the rest of this struct — it selects how
-   * the search runs — but it rides here because this is the one object the
-   * view hands the index, and the user sets it in the same panel as the
-   * others. Off means `asdf` returns nothing and says so.
+   * How far the search may reach past what was actually typed. Not a
+   * post-filter like the rest of this struct — it selects how the search runs
+   * — but it rides here because this is the one object the view hands the
+   * index, and the user sets it in the same panel as the others.
    */
-  nearMatches: boolean;
+  nearMatches: NearMatchMode;
 }
+
+/**
+ * The three answers to "should this search look for words I did not type".
+ *
+ * This was a boolean, and the boolean could only express two of them. The
+ * third is the one the feature is actually for: the archive contains its own
+ * misspellings. Someone typed `Jeen` into a document in 2011, and a search
+ * for `Jean` that only ever falls back when it finds nothing will never reach
+ * it, because `Jean` always finds something.
+ *
+ * - `fallback` — exact and prefix only; if that finds nothing, retry within
+ *   one edit and label the result. The default, and the cheapest: an
+ *   ordinary query never runs the second pass at all.
+ * - `always` — exact and prefix, PLUS near matches appended after them. Finds
+ *   the typo in the archive, at the cost of `bean`, `mean` and `sean` when
+ *   you search for `jean`. That noise is tolerable only because near hits
+ *   stay separate, flagged, and last — see `SearchOutcome.exactCount`.
+ * - `never` — exact and prefix only. Zero means zero.
+ */
+export type NearMatchMode = 'fallback' | 'always' | 'never';
 
 export interface SearchHit {
   doc: DocumentSummary;
@@ -39,22 +58,45 @@ export interface SearchHit {
    * defect this field exists to make impossible.
    */
   highlight: string[];
+  /**
+   * True when this hit matched something one edit away from the query rather
+   * than the query itself — `bean` for `jean`, or the archive's own `Jeen`.
+   *
+   * Carried per hit rather than inferred from position because in `always`
+   * mode exact and near hits share one list, and a near match the user cannot
+   * tell apart from an exact one is worse than no near match at all. The row
+   * that renders this must show it.
+   */
+  near: boolean;
 }
 
 /** Why a result set came from near matches, and what it actually matched. */
 export interface NearMatch {
-  /** The positive terms the user typed, which matched nothing exactly. */
+  /** The positive terms the user typed. */
   query: string[];
-  /** The index terms the fuzzy retry matched instead, first-seen order. */
+  /**
+   * The index terms the fuzzy pass matched instead, first-seen order — only
+   * from hits that are near-only, so a term that also matched exactly never
+   * appears here.
+   */
   terms: string[];
 }
 
 export interface SearchOutcome {
   hits: SearchHit[];
   /**
-   * Non-null only when the exact search found nothing and the fuzzy retry
-   * found something. The UI must say so: results the user did not ask for,
-   * presented as if they were, is how "84 hits for `asdf`" happened.
+   * How many of `hits` matched the query itself. They are the FIRST
+   * `exactCount` entries, in their own order; anything after that index is a
+   * near match. The two are one list because they are one result list, and
+   * two numbers because merging them into one undifferentiated count is
+   * exactly how "270 results for jean" looked like an answer.
+   */
+  exactCount: number;
+  /**
+   * Non-null whenever near matches are in `hits` at all — the fallback firing
+   * on an empty exact search, or `always` appending them to a full one. The
+   * UI must say so: results the user did not ask for, presented as if they
+   * were, is how "84 hits for `asdf`" happened.
    */
   nearMatch: NearMatch | null;
 }
@@ -214,8 +256,9 @@ export class ArkIndex {
 
   /**
    * One pass of the index at a fixed fuzziness, post-filtered and turned into
-   * hits. `fuzzy: false` is the ordinary search; the fuzzy pass exists only
-   * as the fallback `search` runs when this one comes back empty.
+   * hits. `fuzzy: false` is the ordinary search; the fuzzy pass is the second
+   * attempt `search` makes — when the first came back empty (`fallback`), or
+   * unconditionally (`always`).
    */
   private collect(parsed: ParsedQuery, filters: SearchFilters, fuzzy: boolean): SearchHit[] {
     const results = this.mini.search(parsed.terms.join(' '), {
@@ -276,6 +319,10 @@ export class ArkIndex {
         attachmentName: field === 'attachment' ? matchedAttachment!.name : undefined,
         snippet: snippet(field === 'attachment' ? matchedAttachment!.text : doc.body, highlight),
         highlight,
+        // Every hit from the fuzzy pass is a near match here. `search` drops
+        // the ones that also matched exactly before they reach the user, so
+        // nothing survives this pass that the exact pass already answered.
+        near: fuzzy,
       });
     }
     return hits.sort((a, b) => b.score - a.score);
@@ -294,7 +341,7 @@ export class ArkIndex {
     // working: everything passing the filters *and* the exclusion, ordered by
     // date descending.
     if (parsed.terms.length === 0 && parsed.phrases.length === 0 && parsed.excluded.length === 0) {
-      return { hits: [], nearMatch: null };
+      return { hits: [], exactCount: 0, nearMatch: null };
     }
 
     // Reaching here means parsed.excluded is non-empty (the pure-empty case
@@ -320,26 +367,41 @@ export class ArkIndex {
           // highlight the fuzzy path produced — there is no term here that
           // the user asked to see.
           highlight: [],
+          near: false,
         }))
         .sort((a, b) => (b.doc.meta.date ?? '').localeCompare(a.doc.meta.date ?? ''));
-      return { hits, nearMatch: null };
+      return { hits, exactCount: hits.length, nearMatch: null };
     }
 
     const exact = this.collect(parsed, filters, false);
-    if (exact.length > 0 || !filters.nearMatches) return { hits: exact, nearMatch: null };
+    const exactOnly = { hits: exact, exactCount: exact.length, nearMatch: null };
 
-    // Nothing matched what was typed. Rather than go quiet, try again within
-    // one edit — but as an explicitly labelled second answer, never as extra
-    // rows silently mixed into the first. `qwerty` still returns nothing;
-    // `asdf` returns the `asif` documents and says that is what it did.
-    const near = this.collect(parsed, filters, true);
-    if (near.length === 0) return { hits: near, nearMatch: null };
+    if (filters.nearMatches === 'never') return exactOnly;
+    // `fallback` reaches past the query only when the query itself came up
+    // empty. `always` reaches past it every time, which is the only way to
+    // find a document that spells the search term wrong.
+    if (filters.nearMatches === 'fallback' && exact.length > 0) return exactOnly;
+
+    // A second pass within one edit. Its answers are an addition to the first
+    // pass, never a replacement for it: a document the exact search already
+    // returned must not come back again as a near match, and the ones that
+    // are genuinely near go AFTER every exact hit, flagged, so the user can
+    // see at a glance which is which. `qwerty` still returns nothing.
+    const answered = new Set(exact.map((hit) => this.keyOf(hit.doc.original)));
+    const near = this.collect(parsed, filters, true).filter(
+      (hit) => !answered.has(this.keyOf(hit.doc.original)),
+    );
+    if (near.length === 0) return exactOnly;
 
     const terms: string[] = [];
     for (const hit of near) {
       for (const term of hit.highlight) if (!terms.includes(term)) terms.push(term);
     }
-    return { hits: near, nearMatch: { query: parsed.terms, terms } };
+    return {
+      hits: [...exact, ...near],
+      exactCount: exact.length,
+      nearMatch: { query: parsed.terms, terms },
+    };
   }
 }
 

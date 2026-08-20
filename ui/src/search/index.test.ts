@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { encodeHashToBase64 } from '@holochain/client';
-import { ArkIndex } from './index';
+import { ArkIndex, type SearchFilters } from './index';
 import type { DocumentSummary, Folder } from '../types';
 
 const hash = (n: number) => new Uint8Array([n, n, n]) as any;
@@ -41,14 +41,14 @@ function makeIndex() {
   return index;
 }
 
-const noFilters = {
+const noFilters: SearchFilters = {
   folderId: null,
   folders,
   from: null,
   to: null,
   author: null,
   includeTrashed: false,
-  nearMatches: true,
+  nearMatches: 'fallback',
 };
 
 describe('ArkIndex', () => {

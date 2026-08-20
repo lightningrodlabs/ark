@@ -54,7 +54,7 @@ const baseFilters: SearchFilters = {
   to: null,
   author: null,
   includeTrashed: false,
-  nearMatches: true,
+  nearMatches: 'fallback',
 };
 
 const queries = [

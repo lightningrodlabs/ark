@@ -12,6 +12,7 @@
     search,
     hits,
     nearMatch,
+    exactCount,
     searching,
     loading = false,
     loaded = 0,
@@ -25,12 +26,20 @@
     search: SearchStore;
     hits: SearchHit[];
     /**
-     * Set when these hits came from the near-match fallback rather than from
-     * the query itself. The panel then says so, naming the terms that
-     * actually matched. Results the user did not ask for, presented as if
-     * they were, is the bug this prop exists to make impossible.
+     * Set whenever any of these hits matched something other than what was
+     * typed — the fallback firing on an empty search, or `always` appending
+     * near matches to a full one. The panel then says so, naming the terms
+     * that actually matched. Results the user did not ask for, presented as
+     * if they were, is the bug this prop exists to make impossible.
      */
     nearMatch: NearMatch | null;
+    /**
+     * How many of `hits` matched the query itself. They are the first
+     * `exactCount` rows; everything after is a near match. Kept as a count
+     * rather than two lists because the list is one list — the user scrolls
+     * through it once — but the two halves must never read as the same thing.
+     */
+    exactCount: number;
     /** Whether a query or filter is in play at all. */
     searching: boolean;
     /**
@@ -97,17 +106,23 @@
   /**
    * Whether the filters are narrowing the search right now.
    *
-   * A date, an author, or the near-match fallback switched off: each one can
-   * remove results the user would otherwise see, and the panel they live in
-   * is collapsed most of the time. This app has already shipped one bug where
-   * an invisible filter silently emptied the results, so the funnel fills in
-   * and the button carries a marker whether or not the panel is open.
+   * A date, an author, or a near-match mode that is not the default: each one
+   * changes which results the user sees, and the panel they live in is
+   * collapsed most of the time. This app has already shipped one bug where an
+   * invisible filter silently emptied the results, so the funnel fills in and
+   * the button carries a marker whether or not the panel is open.
    *
-   * "Include trashed" is deliberately absent — it only ever WIDENS the
-   * result set, so it cannot be the reason something is missing.
+   * "Not the default" rather than "narrows", because `always` is the one
+   * setting here that WIDENS and still has to show: a session left in it
+   * three days ago answers `jean` with `bean`, and the funnel is the only
+   * place that can explain why. `never` narrows in the ordinary way.
+   *
+   * "Include trashed" is deliberately absent — it only ever widens the result
+   * set by documents that are labelled as trashed on the row itself, so it
+   * can neither hide something nor be mistaken for something else.
    */
   let filtersActive = $derived(
-    !!search.from || !!search.to || !!search.author || !search.nearMatches,
+    !!search.from || !!search.to || !!search.author || search.nearMatches !== 'fallback',
   );
 
   function closeFilters(returnFocus: boolean) {
@@ -133,6 +148,23 @@
     return () => panel.removeEventListener('keydown', onKey);
   });
   const optionId = (i: number) => `ark-search-option-${i}`;
+  const NEAR_MODE_ID = 'ark-near-mode';
+
+  /**
+   * The count, said as two numbers whenever there are two kinds of hit.
+   *
+   * "270 results" for `jean` is what made half of them look like answers when
+   * 135 of them were `bean`, `mean` and `sean`. Merging the two is the thing
+   * that has to be impossible, so the exact count and the near count are
+   * rendered from separate values and never added together.
+   */
+  let nearCount = $derived(hits.length - exactCount);
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  let countLine = $derived(
+    nearCount > 0
+      ? `${plural(exactCount, 'result', 'results')}, ${plural(nearCount, 'near match', 'near matches')}`
+      : plural(hits.length, 'result', 'results'),
+  );
 
   /**
    * How many result rows reach the DOM, and how that number grows.
@@ -422,7 +454,7 @@
     {#if loading}
       <span class="count">{loaded} of {total ?? '?'} loaded</span>
     {:else}
-      <span class="count">{hits.length} result{hits.length === 1 ? '' : 's'}</span>
+      <span class="count">{countLine}</span>
     {/if}
   </div>
 
@@ -455,15 +487,27 @@
           {/each}
         </div>
       </div>
+      <!-- Three choices, not a checkbox. The boolean could say "guess when
+           you find nothing" and "never guess", but not the one the feature is
+           really for: look for near matches even when there ARE exact ones,
+           because the archive contains its own misspellings and no exact
+           search can ever reach them.
+
+           Worded without "fuzzy" or "edit distance" — the user should not
+           have to know the word to pick the right option. The label is a
+           separate element with `for`, rather than a wrapping <label>, so the
+           accessible name of the select is exactly "Near matches" and not the
+           label text plus every option in it. -->
+      <div class="near-mode">
+        <label class="filter-label" for={NEAR_MODE_ID}>Near matches</label>
+        <select id={NEAR_MODE_ID} bind:value={search.nearMatches}>
+          <option value="fallback">Only when nothing matches</option>
+          <option value="always">Always</option>
+          <option value="never">Never</option>
+        </select>
+      </div>
       <div class="switches">
         <label><input type="checkbox" bind:checked={search.includeTrashed} /> Include trashed</label>
-        <!-- On by default. The fallback only fires when the exact search
-             found nothing, so it costs an ordinary query nothing; off is for
-             someone who wants a plain "no results" rather than a guess. -->
-        <label>
-          <input type="checkbox" bind:checked={search.nearMatches} />
-          Near matches when nothing matches exactly
-        </label>
       </div>
     </div>
   {/if}
@@ -503,9 +547,11 @@
                  that IS the whole answer must not imply there is more. -->
             <span class="panel-count">
               {#if more}
-                showing {visible.length} of {hits.length} results
+                showing {visible.length} of {hits.length} results{nearCount > 0
+                  ? ` — ${nearCount} of them near matches`
+                  : ''}
               {:else}
-                {hits.length} result{hits.length === 1 ? '' : 's'}
+                {countLine}
               {/if}
             </span>
             <span class="panel-hint">↑↓ to move · Enter to open · Esc to close</span>
@@ -517,13 +563,26 @@
                fix. -->
           <!-- Near matches never arrive unannounced. The rows below matched
                words the user did not type, so the panel names both: what was
-               asked for, and what was found instead. -->
+               asked for, and what was found instead.
+
+               Two sentences, not one, because the two modes mean different
+               things. The fallback fired because there was nothing else to
+               show. `always` fired because the user asked it to, on top of
+               real answers, and the note has to say where those extra rows
+               are rather than implying the real answers are missing. -->
           {#if nearMatch}
             <p class="near-match" data-testid="near-match">
-              No results for “{nearMatch.query.join(' ')}” — showing {hits.length} near match{hits.length ===
-              1
-                ? ''
-                : 'es'} for “{nearMatch.terms.join('”, “')}”.
+              {#if exactCount === 0}
+                No results for “{nearMatch.query.join(' ')}” — showing {plural(
+                  nearCount,
+                  'near match',
+                  'near matches',
+                )} for “{nearMatch.terms.join('”, “')}”.
+              {:else}
+                Also showing {plural(nearCount, 'near match', 'near matches')} for “{nearMatch.terms.join(
+                  '”, “',
+                )}”, listed after the {plural(exactCount, 'exact result', 'exact results')}.
+              {/if}
             </p>
           {/if}
           {#if hits.length === 0 && unscopedFallbackCount > 0}
@@ -773,10 +832,16 @@
   }
   .filters {
     display: flex;
+    flex-wrap: wrap;
     gap: 1rem;
     align-items: flex-start;
     padding: 0 0.5rem 0.5rem;
     font-size: 0.9em;
+  }
+  .near-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
   }
   .switches {
     display: flex;

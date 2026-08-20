@@ -53,6 +53,14 @@
 
 <ul bind:this={list} id={listId} role="listbox" aria-label="Search results" class="results">
   {#each hits as hit, i (key(hit.doc.original) + (hit.attachmentName ?? ''))}
+    <!-- Where the exact answers stop and the near ones begin. Visual only,
+         and aria-hidden, because the row-level badge below is the marker a
+         screen reader gets — a divider is unreachable once the list has been
+         scrolled past it, and every near row has to be identifiable on its
+         own wherever the user happens to be looking. -->
+    {#if hit.near && (i === 0 || !hits[i - 1].near)}
+      <li class="near-divider" role="presentation" aria-hidden="true">Near matches</li>
+    {/if}
     <!-- The whole row is the target, snippet included: a title-only hit area
          makes the line people are actually reading unclickable. -->
     <li
@@ -61,6 +69,7 @@
       aria-selected={i === activeIndex}
       class="result"
       class:active={i === activeIndex}
+      class:near={hit.near}
       use:listen={{ click: () => onSelect(hit), mousemove: () => onHover(i) }}
     >
       <div class="head">
@@ -68,6 +77,13 @@
           >{#each titleSegments(hit) as segment}{#if segment.marked}<mark>{segment.text}</mark
             >{:else}{segment.text}{/if}{/each}</span
         >
+        <!-- Not decoration. In `always` mode this row sits in the same list
+             as the real answers, and a near match nobody can tell apart from
+             an exact one is worse than no near match at all. Real text, so it
+             is read out as well as seen. -->
+        {#if hit.near}
+          <span class="near-badge">Near match</span>
+        {/if}
         <span class="date">{hit.doc.meta.date ?? ''}</span>
       </div>
       <div class="where">
@@ -111,6 +127,34 @@
   }
   .title {
     font-weight: 600;
+  }
+  .result.near {
+    border-left: 3px solid rgba(200, 140, 40, 0.6);
+  }
+  .near-badge {
+    flex: none;
+    margin-left: auto;
+    align-self: center;
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.05rem 0.35rem;
+    border-radius: 3px;
+    border: 1px solid rgba(200, 140, 40, 0.6);
+    color: inherit;
+    opacity: 0.85;
+  }
+  .near-divider {
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.7;
+    background: rgba(200, 140, 40, 0.12);
+    border-top: 1px solid rgba(200, 140, 40, 0.5);
+    border-bottom: 1px solid rgba(200, 140, 40, 0.5);
   }
   .date {
     opacity: 0.6;

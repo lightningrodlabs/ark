@@ -311,7 +311,7 @@
   // matches has to carry that fact to the bar, which says so. Silently
   // returning the rows alone is how "84 results for asdf" looked like an
   // answer in the first place.
-  const NO_RESULTS: SearchOutcome = { hits: [], nearMatch: null };
+  const NO_RESULTS: SearchOutcome = { hits: [], exactCount: 0, nearMatch: null };
   let searchOutcome = $derived.by<SearchOutcome>(() => {
     // No answers at all until the index covers the whole corpus — see the
     // SearchStore.rebuild() call in onMount. A partial index does not return
@@ -619,6 +619,7 @@
             {search}
             hits={searchOutcome.hits}
             nearMatch={searchOutcome.nearMatch}
+            exactCount={searchOutcome.exactCount}
             {searching}
             loading={loadingDocs}
             loaded={store.loaded}
