@@ -27,6 +27,14 @@ holonix `main-0.6`) and **Moss 0.15** (`@theweave/cli 0.15.x`,
 Moss 0.16 line. The two are kept in step; pick the branch that matches the
 conductor and Moss you are running.
 
+## Development model
+
+This is the **maintenance line**. Work is authored on `main` (Holochain 0.7 /
+Moss 0.16) and back-ported here by cherry-pick — not the other way round. The
+exception is a change that applies only to this line, such as the HDK pin
+matching the conductor Moss 0.15 bundles; those are authored here and never
+carried forward.
+
 ## Environment Setup
 
 > PREREQUISITE: set up the [holochain development environment](https://developer.holochain.org/docs/install/).

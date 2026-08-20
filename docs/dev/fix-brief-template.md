@@ -24,6 +24,26 @@ Design rules that constrain almost every change:
   goes through `renderMarkdown` (DOMPurify), and nothing else may produce HTML
   for `{@html}`.
 
+## Which branch to work on
+
+Development happens on **`main`** — Holochain 0.7 / Moss 0.16. Changes are then
+back-ported to **`main-0.6`** (Holochain 0.6 / Moss 0.15) by cherry-pick.
+
+Author on `main` and back-port. Do not author on `main-0.6` and forward-port:
+the maintenance line is the one that should be receiving changes, not
+originating them, and inverting it means the newer line is always the one
+running unreviewed cherry-picks. The temptation is real — the maintenance line
+is often the one being tested by hand — so this is stated rather than assumed.
+
+The exception is a change that applies to one line only: the HDK pin matching
+the conductor Moss 0.15 bundles lives on `main-0.6` and is never carried
+forward. Anything line-specific says so in its commit message.
+
+After back-porting, the two lines should differ only in their version deltas
+(dependency versions, the holonix ref, the `FlatOp` variant rename, the pin
+guard). `git log --format='%s' main...main-0.6 --left-only` should be empty:
+nothing should exist on `main` that has not reached `main-0.6`.
+
 ## Environment
 
 Run **every** command with the Bash sandbox disabled
