@@ -83,6 +83,8 @@
   );
 
   let showFilters = $state(false);
+  let filtersButton: HTMLButtonElement | undefined = $state();
+  let filtersPanel: HTMLElement | undefined = $state();
   let input: HTMLInputElement | undefined = $state();
   let bar: HTMLElement | undefined = $state();
   /** Set by Escape, and by opening a result. Cleared by editing the query. */
@@ -90,6 +92,46 @@
   let activeIndex = $state(-1);
 
   const LIST_ID = 'ark-search-results';
+  const FILTERS_ID = 'ark-search-filters';
+
+  /**
+   * Whether the filters are narrowing the search right now.
+   *
+   * A date, an author, or the near-match fallback switched off: each one can
+   * remove results the user would otherwise see, and the panel they live in
+   * is collapsed most of the time. This app has already shipped one bug where
+   * an invisible filter silently emptied the results, so the funnel fills in
+   * and the button carries a marker whether or not the panel is open.
+   *
+   * "Include trashed" is deliberately absent — it only ever WIDENS the
+   * result set, so it cannot be the reason something is missing.
+   */
+  let filtersActive = $derived(
+    !!search.from || !!search.to || !!search.author || !search.nearMatches,
+  );
+
+  function closeFilters(returnFocus: boolean) {
+    showFilters = false;
+    if (returnFocus) filtersButton?.focus();
+  }
+
+  // Escape closes the panel from inside it, and puts focus back on the button
+  // that opened it — otherwise focus is orphaned on an element that no longer
+  // exists. Bound imperatively rather than as `onkeydown` on the panel div:
+  // the panel is a container, not a control, and a keyboard handler on a
+  // static element is exactly what the a11y rules are right to complain
+  // about. The controls inside it are the real ones.
+  $effect(() => {
+    const panel = filtersPanel;
+    if (!panel) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      closeFilters(true);
+    };
+    panel.addEventListener('keydown', onKey);
+    return () => panel.removeEventListener('keydown', onKey);
+  });
   const optionId = (i: number) => `ark-search-option-${i}`;
 
   /**
@@ -348,7 +390,33 @@
         Scope to {scopeOfferLabel}
       </button>
     {/if}
-    <button class="filters-toggle" onclick={() => (showFilters = !showFilters)}>Filters</button>
+    <!-- A real toggle, not a button whose only state is the panel below it
+         ("you can't tell how to close the filters section"). It reports
+         `aria-expanded`, closes on a second click, and fills its funnel while
+         a filter is actually narrowing the results.
+
+         `aria-controls` names the panel, which is only in the DOM while it is
+         open — the ordinary disclosure pattern. Rendering it always and
+         hiding it would put a second and third `input[type="date"]` in the
+         document permanently, which is a real cost for a collapsed panel.
+
+         The accessible name stays exactly "Filters": the state is carried by
+         `aria-expanded` and `title`, not by appending words to the name. -->
+    <button
+      type="button"
+      class="filters-toggle"
+      class:open={showFilters}
+      class:active={filtersActive}
+      title={filtersActive ? 'Filters — some are active' : 'Filters'}
+      aria-expanded={showFilters}
+      aria-controls={FILTERS_ID}
+      bind:this={filtersButton}
+      onclick={() => (showFilters ? closeFilters(false) : (showFilters = true))}
+    >
+      <sl-icon name={filtersActive ? 'funnel-fill' : 'funnel'}></sl-icon>
+      Filters
+      {#if filtersActive}<span class="filter-dot" aria-hidden="true"></span>{/if}
+    </button>
     <!-- "0 results" during the load would be a lie by omission — there is no
          result count yet, only a load. -->
     {#if loading}
@@ -359,7 +427,7 @@
   </div>
 
   {#if showFilters}
-    <div class="filters">
+    <div class="filters" id={FILTERS_ID} bind:this={filtersPanel}>
       <label>From <input type="date" bind:value={search.from} /></label>
       <label>To <input type="date" bind:value={search.to} /></label>
       <div class="author-filter" role="group" aria-label="Filter by author">
@@ -671,6 +739,37 @@
     opacity: 0.7;
     font-size: 0.9em;
     white-space: nowrap;
+  }
+  .filters-toggle {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font: inherit;
+    font-size: 0.9em;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid rgba(128, 128, 128, 0.5);
+    border-radius: 4px;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  /* Pressed, not merely different: an inset shadow and a filled background,
+     so the open state reads as "click me again to close" rather than as a
+     colour someone chose. */
+  .filters-toggle.open {
+    background: rgba(120, 150, 220, 0.28);
+    border-color: currentColor;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
+  }
+  /* Redundant with the filled funnel on purpose — the funnel is a 16px
+     silhouette and the difference between outline and filled is easy to miss
+     at a glance. */
+  .filter-dot {
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 50%;
+    background: currentColor;
   }
   .filters {
     display: flex;
