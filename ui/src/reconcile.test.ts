@@ -58,7 +58,9 @@ describe('reconcile', () => {
     expect(outcome).toBe('changed');
     expect(deps.store.changedSince).toHaveBeenCalledOnce();
     expect(deps.tree.load).toHaveBeenCalledOnce();
-    expect(deps.store.syncMissing).toHaveBeenCalledWith(deps.tree.folders);
+    // Progress is passed straight through — undefined for a backstop tick,
+    // which has no label to keep honest.
+    expect(deps.store.syncMissing).toHaveBeenCalledWith(deps.tree.folders, undefined);
     expect(deps.store.load).not.toHaveBeenCalled();
     expect(deps.search.upsert).toHaveBeenCalledOnce();
     expect(deps.search.upsert).toHaveBeenCalledWith(upserted[0]);

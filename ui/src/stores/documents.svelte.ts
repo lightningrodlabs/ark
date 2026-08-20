@@ -79,7 +79,10 @@ export class DocumentStore {
    * page length is what keeps an unresolved hash near the front of the
    * archive from truncating everything after it.
    */
-  async load(folders: Folder[], onChunk?: (loaded: number) => void): Promise<boolean> {
+  async load(
+    folders: Folder[],
+    onChunk?: (loaded: number, total: number) => void,
+  ): Promise<boolean> {
     // A cold start has never recorded a total. Only then is the growing,
     // partial map worth publishing: it drives the "Loading documents… N"
     // counter while there is nothing else on screen. On every later call —
@@ -117,7 +120,10 @@ export class DocumentStore {
           // rest of this load into a warm one.
           this.total = total;
         }
-        onChunk?.(byOriginal.size);
+        // `total` is the anchor's own count, reported alongside the first
+        // page, so a caller counting a warm load — which publishes nothing
+        // reactive — still has both halves of "N of M".
+        onChunk?.(byOriginal.size, total);
       }
 
       // Assign only on a real difference. `$state` compares by reference for
@@ -158,7 +164,10 @@ export class DocumentStore {
    * expensive half of a reconcile and repaints every search result as a side
    * effect even for a single new document.
    */
-  async syncMissing(folders: Folder[]): Promise<SyncResult> {
+  async syncMissing(
+    folders: Folder[],
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<SyncResult> {
     const hashes = await this.ark.getDocumentHashes();
     const remoteKeys = new Set(hashes.map(key));
     const missingHashes = hashes.filter((h) => !this.byOriginal.has(key(h)));
@@ -167,7 +176,9 @@ export class DocumentStore {
     );
 
     if (missingHashes.length > this.chunk) {
-      const changed = await this.load(folders);
+      // The paged reload is the long one — fifteen round trips on the
+      // reference archive — so it is the one that most needs to be reported.
+      const changed = await this.load(folders, onProgress);
       return { changed, upserted: [], departed: [], fellBack: true };
     }
 
@@ -182,7 +193,14 @@ export class DocumentStore {
       };
     }
 
-    const fetched = await Promise.all(missingHashes.map((h) => this.ark.getDocument(h)));
+    let done = 0;
+    const fetched = await Promise.all(
+      missingHashes.map(async (h) => {
+        const doc = await this.ark.getDocument(h);
+        onProgress?.((done += 1), missingHashes.length);
+        return doc;
+      }),
+    );
     const next = new Map(this.byOriginal);
     for (const doc of departed) next.delete(key(doc.original));
     const upserted: DocumentSummary[] = [];

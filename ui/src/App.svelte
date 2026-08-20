@@ -329,13 +329,16 @@
     selectedDoc = null;
   }
 
-  // ImportPanel has already reloaded the document store and created any new
-  // folders by the time onDone fires; only the search index needs rebuilding.
+  // Nothing to do here any more, and that is the point: ImportPanel's closing
+  // refresh now goes through `syncMissing`, which updates the index as it
+  // goes (or rebuilds it once, if the delta was big enough to fall back to a
+  // paged load). The unconditional `search.rebuild()` that used to live here
+  // was a second full pass over the corpus — ~640ms at 1406 documents —
+  // immediately after one that had already left the index correct.
+  //
   // Deliberately does not close the panel: the summary of what was imported
   // is worth reading, so the pane header's × is what dismisses it.
-  function onImportDone() {
-    search?.rebuild();
-  }
+  function onImportDone() {}
 
   function amendDoc() {
     editing = 'amend';
@@ -670,10 +673,10 @@
             title={paneTitle}
             onClose={closePane}
             closeDisabled={paneOccupant === 'import' && importRunning}
-            closeReason="This import is still writing documents — it will finish on its own."
+            closeReason="This import is still running — it will finish on its own."
           />
         {/if}
-        {#if importing && ark && store && files}
+        {#if importing && ark && store && files && search}
           <ImportPanel
             {ark}
             {tree}
