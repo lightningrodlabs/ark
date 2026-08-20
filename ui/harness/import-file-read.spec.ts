@@ -124,7 +124,7 @@ test('a markdown file that cannot be read is named in the panel, and the rest st
   await boot(page);
   await failReads(page, 'unreadable\\.md$');
 
-  await page.setInputFiles('.pane-end input[type="file"]', brokenDir);
+  await page.setInputFiles('.pane-end input.pick-folder', brokenDir);
 
   // Named, not merely counted: with 1406 picked files a bare "1 failed" is
   // useless to whoever has to go find it.
@@ -150,7 +150,7 @@ test('picking files whose reads all fail still leaves the panel saying so', asyn
   await boot(page);
   await failReads(page, '\\.md$');
 
-  await page.setInputFiles('.pane-end input[type="file"]', goodDir);
+  await page.setInputFiles('.pane-end input.pick-folder', goodDir);
 
   await expect(panel(page)).toContainText('None of the 3 markdown file(s) you picked');
   await expect(panel(page)).toContainText('points at this environment');
@@ -167,7 +167,7 @@ test('one bad file among many is never reported as an environment failure', asyn
   await boot(page);
   await failReads(page, 'unreadable\\.md$');
 
-  await page.setInputFiles('.pane-end input[type="file"]', brokenDir);
+  await page.setInputFiles('.pane-end input.pick-folder', brokenDir);
   await expect(panel(page).locator('.failed-list')).toContainText('unreadable.md');
   await expect(panel(page)).not.toContainText('points at this environment');
 
@@ -190,7 +190,7 @@ test('markdown reads are pooled rather than all started at once', async ({ page 
   const errors = await collectPageErrors(page);
   await boot(page);
 
-  await page.setInputFiles('.pane-end input[type="file"]', manyDir);
+  await page.setInputFiles('.pane-end input.pick-folder', manyDir);
   await expect(panel(page).locator('.summary')).toContainText(`${MANY} new document`);
 
   const stats = await readStats(page);
@@ -214,7 +214,7 @@ test('an attachment that cannot be read is reported and the document is still cr
   const errors = await collectPageErrors(page);
   await boot(page);
 
-  await page.setInputFiles('.pane-end input[type="file"]', attachmentDir);
+  await page.setInputFiles('.pane-end input.pick-folder', attachmentDir);
   await expect(panel(page).locator('.summary')).toContainText('1 new document');
 
   // Fail the attachment only, and only once the markdown has been read.
@@ -227,3 +227,58 @@ test('an attachment that cannot be read is reported and the document is still cr
   expect(errors).toEqual([]);
 });
 
+// ---------------------------------------------------------------------------
+// 4. Picking individual files, not only a folder.
+// ---------------------------------------------------------------------------
+
+// `webkitdirectory` makes a file input directory-ONLY, so the panel offered no
+// way to import a single document — and no way to narrow down a folder that
+// would not import, which is exactly the diagnostic the user reached for when
+// this failed. The two routes cannot share one input, so there are two, and
+// both go through the same plan and the same import.
+
+test('a single markdown file can be picked and imported on its own', async ({ page }) => {
+  const errors = await collectPageErrors(page);
+  await boot(page);
+
+  await page.setInputFiles('.pane-end input.pick-files', join(goodDir, 'fine-0.md'));
+
+  await expect(panel(page).locator('.summary')).toContainText('1 new document');
+  await page.getByRole('button', { name: 'Import', exact: true }).click();
+  await expect(panel(page).locator('.result')).toContainText('1 document(s) created');
+  expect(errors).toEqual([]);
+});
+
+test('a hand-picked document and its attachment still match up', async ({ page }) => {
+  // Individually picked files have an EMPTY `webkitRelativePath`, so the
+  // same-directory preference matchAttachments applies to a folder pick has
+  // nothing to work with. It must still match on the plain name rather than
+  // silently attaching nothing — or, worse, the wrong file.
+  const errors = await collectPageErrors(page);
+  await boot(page);
+
+  await page.setInputFiles('.pane-end input.pick-files', [
+    join(attachmentDir, 'with-budget.md'),
+    join(attachmentDir, 'budget.txt'),
+  ]);
+
+  await expect(panel(page).locator('.summary')).toContainText('1 document(s) with a matched attachment');
+  await page.getByRole('button', { name: 'Import', exact: true }).click();
+  await expect(panel(page).locator('.result')).toContainText('1 attachment(s) uploaded');
+  expect(errors).toEqual([]);
+});
+
+test('picking files replaces a folder pick rather than adding to it', async ({ page }) => {
+  // Two inputs means two file lists, and the one the user did not just use
+  // must not go on advertising a stale count next to somebody else's plan.
+  const errors = await collectPageErrors(page);
+  await boot(page);
+
+  await page.setInputFiles('.pane-end input.pick-folder', manyDir);
+  await expect(panel(page).locator('.summary')).toContainText(`${MANY} new document`);
+
+  await page.setInputFiles('.pane-end input.pick-files', join(goodDir, 'fine-1.md'));
+  await expect(panel(page).locator('.summary')).toContainText('1 new document');
+  expect(await page.locator('.pane-end input.pick-folder').evaluate((el: HTMLInputElement) => el.files?.length ?? 0)).toBe(0);
+  expect(errors).toEqual([]);
+});

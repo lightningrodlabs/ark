@@ -59,7 +59,7 @@ const stall = (page: Page, fn: string) =>
 const releaseAll = (page: Page) => page.evaluate(() => (window as any).__ARK_RELEASE__());
 
 async function pickAndPlan(page: Page, dir: string, expected: number): Promise<void> {
-  await page.setInputFiles('.pane-end input[type="file"]', dir);
+  await page.setInputFiles('.pane-end input.pick-folder', dir);
   await expect(page.locator('.pane-end .summary')).toContainText(`${expected} new document`);
 }
 
