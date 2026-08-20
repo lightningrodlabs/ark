@@ -236,15 +236,29 @@
       // `store.byOriginal` grows with each one: folder counts, the document
       // list and the progress banner all follow it without anything here
       // pushing them.
-      await currentStore.load(currentTree.folders);
-      // Search is the one thing that needs the WHOLE corpus. An index built
-      // over a third of the archive answers, plausibly and silently, for a
-      // third of the archive — the failure this project has already shipped
-      // once (see SearchStore.folderScope). So the index is built in one pass
-      // at the end and the search bar refuses to answer until then, saying how
-      // far along it is; `loadingDocs` is what gates that, and it is the last
-      // thing to flip.
-      currentSearch.rebuild();
+      //
+      // Each page is indexed as it lands, so by the time the last one arrives
+      // the index is already complete. The work overlaps the round trips that
+      // are happening anyway; the separate `rebuild()` pass that used to run
+      // here was ~550ms of synchronous main thread at 1406 documents, spent
+      // at the one moment the app looks finished and the user reaches for the
+      // search box.
+      //
+      // What does NOT change is when search starts answering. It still needs
+      // the WHOLE corpus: an index over the third of the archive that happens
+      // to have arrived answers, plausibly and silently, for a third of the
+      // archive — the failure this project has already shipped once (see
+      // SearchStore.folderScope). `loadingDocs` gates that and is still the
+      // last thing to flip.
+      await currentStore.load(currentTree.folders, (_loaded, _total, documents) =>
+        currentSearch.upsertAll(documents),
+      );
+      // Filings and trash are read before paging starts and again at the end
+      // of the load (a document filed by someone else while we paged is only
+      // in the second read). The index holds whatever maps it was last handed,
+      // so it is pointed at the final ones here — the same thing `rebuild()`
+      // did on its way out.
+      currentSearch.sync();
       loadingDocs = false;
 
       // Started only now: a remote signal or a reconcile landing mid-load

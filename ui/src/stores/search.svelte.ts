@@ -39,6 +39,16 @@ export class SearchStore {
     this.index.upsert(doc);
   }
 
+  /**
+   * Index a page of documents as it arrives, so the initial load leaves a
+   * complete index behind instead of needing a `rebuild()` pass at the end
+   * over a corpus that is already in memory. Idempotent — see
+   * `ArkIndex.upsert` — because a page can arrive twice.
+   */
+  upsertAll(docs: DocumentSummary[]): void {
+    this.index.upsertAll(docs);
+  }
+
   /** Drop a document that is no longer in the corpus. Keeps callers out of
    * `index` directly. */
   remove(original: ActionHash): void {

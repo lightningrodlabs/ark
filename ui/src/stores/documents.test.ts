@@ -67,6 +67,18 @@ describe('DocumentStore', () => {
     expect(progress).toEqual([100, 200, 250]);
   });
 
+  it('hands each page its own documents, so a caller can index as they arrive', async () => {
+    // The search index is built from these rather than from one pass over the
+    // finished corpus — see App.svelte's boot and search/incremental.test.ts.
+    // Every document has to appear exactly once, in paging order.
+    const docs = Array.from({ length: 250 }, (_, i) => summary(i, `Doc ${i}`));
+    const store = new DocumentStore(fakeArk(docs, []), 100);
+    const pages: string[][] = [];
+    await store.load(folders, (_n, _total, documents) => pages.push(documents.map((d) => d.meta.title!)));
+    expect(pages.map((p) => p.length)).toEqual([100, 100, 50]);
+    expect(pages.flat()).toEqual(docs.map((d) => d.meta.title));
+  });
+
   it('keeps paging past a short page that is not the last one, and reports the gap', async () => {
     // 250 documents; the first page (offset 0, limit 100) resolves only 97 of
     // them locally. A page-length-based loop reads that short page as

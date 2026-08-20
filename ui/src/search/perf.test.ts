@@ -81,6 +81,41 @@ describe('search performance at corpus scale', () => {
     }
   });
 
+  it('indexes page by page for about what one rebuild costs, with a small tail', () => {
+    // The number that matters is not the total — the same words get indexed
+    // either way — but WHERE it is spent. Rebuilding at the end of the load
+    // puts all of it after the last page arrives, as one synchronous block on
+    // the main thread at the moment the app looks ready. Indexing each page as
+    // it lands spends it between round trips instead, and what is left after
+    // the last page is one page's worth.
+    const page = 100;
+    const rebuildIndex = new ArkIndex();
+    const rebuildStart = performance.now();
+    rebuildIndex.rebuild(docs);
+    const rebuildMs = performance.now() - rebuildStart;
+
+    const index = new ArkIndex();
+    const perPage: number[] = [];
+    for (let offset = 0; offset < docs.length; offset += page) {
+      const start = performance.now();
+      index.upsertAll(docs.slice(offset, offset + page));
+      perPage.push(performance.now() - start);
+    }
+    const incrementalMs = perPage.reduce((a, b) => a + b, 0);
+    const tailMs = perPage[perPage.length - 1];
+    console.log(
+      `rebuild at end: ${Math.round(rebuildMs)}ms all after the last page; ` +
+        `incremental: ${Math.round(incrementalMs)}ms total over ${perPage.length} pages, ` +
+        `${Math.round(tailMs)}ms of it after the last page`,
+    );
+
+    // Total cost must not have run away: the same corpus, indexed once.
+    expect(incrementalMs).toBeLessThan(rebuildMs * 2);
+    // And the blocking tail — the part the user waits through — is a page, not
+    // an archive.
+    expect(tailMs).toBeLessThan(rebuildMs / 4);
+  });
+
   it('adds one document incrementally without a rebuild', () => {
     const index = new ArkIndex();
     index.rebuild(docs);

@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { encodeHashToBase64 } from '@holochain/client';
 import { ArkIndex, type SearchFilters, type SearchHit } from './index';
 import { generateCorpus } from '../../scripts/generate-corpus';
+import { DocumentStore } from '../stores/documents.svelte';
+import { SearchStore } from '../stores/search.svelte';
+import type { ArkClient } from '../ark-client';
 import type { DocumentSummary, Folder } from '../types';
 
 /**
@@ -209,5 +212,106 @@ describe('an incrementally built index equals a rebuilt one', () => {
     );
     expect(before.has(keyOf(docs[1]))).toBe(true);
     expect(after.has(keyOf(docs[1]))).toBe(false);
+  });
+});
+
+/**
+ * The same equivalence, one level up: the actual boot path — `DocumentStore.load`
+ * paging, `SearchStore` indexing each page as it lands, filings and trash read
+ * around it — against `SearchStore.rebuild()` over the finished corpus. The
+ * index-level tests above cannot catch a caller that forgets a page, hands over
+ * the wrong list, or leaves the index pointing at a stale filings map.
+ */
+describe('the boot path leaves the index a rebuild would have left', () => {
+  const corpus = docs.slice(0, 300);
+  const bootFolders: Folder[] = folders;
+
+  function fakeArk(chunkTotal = corpus.length): ArkClient {
+    return {
+      getAllDocuments: vi.fn(async (offset: number, limit: number) => ({
+        total: chunkTotal,
+        documents: corpus.slice(offset, offset + limit),
+      })),
+      getFilings: vi.fn(async (ids: string[]) =>
+        ids.map((id) => ({
+          folder_id: id,
+          documents: corpus.filter((d) => filings.get(keyOf(d)) === id).map((d) => d.original),
+        })),
+      ),
+      getTrashed: vi.fn(async () => corpus.filter((d) => trashed.has(keyOf(d))).map((d) => d.original)),
+    } as unknown as ArkClient;
+  }
+
+  async function boot(index: 'incremental' | 'rebuild'): Promise<SearchStore> {
+    const store = new DocumentStore(fakeArk(), 50);
+    const search = new SearchStore(store);
+    if (index === 'incremental') {
+      await store.load(bootFolders, (_loaded, _total, documents) => search.upsertAll(documents));
+      search.sync();
+    } else {
+      await store.load(bootFolders);
+      search.rebuild();
+    }
+    return search;
+  }
+
+  it('answers every query the same way, filings and trash included', async () => {
+    const incrementalBoot = await boot('incremental');
+    const rebuildBoot = await boot('rebuild');
+    for (const { name, filters } of filterCases) {
+      for (const query of queries) {
+        incrementalBoot.query = query;
+        rebuildBoot.query = query;
+        incrementalBoot.includeTrashed = filters.includeTrashed;
+        rebuildBoot.includeTrashed = filters.includeTrashed;
+        incrementalBoot.from = filters.from;
+        rebuildBoot.from = filters.from;
+        incrementalBoot.to = filters.to;
+        rebuildBoot.to = filters.to;
+        incrementalBoot.author = filters.author;
+        rebuildBoot.author = filters.author;
+        const scope = filters.folderId ? { id: filters.folderId, label: filters.folderId } : null;
+        incrementalBoot.folderScope = scope;
+        rebuildBoot.folderScope = scope;
+        expect(shape(incrementalBoot.run(bootFolders)), `${query} / ${name}`).toEqual(
+          shape(rebuildBoot.run(bootFolders)),
+        );
+      }
+    }
+  });
+
+  it('sees a filing that only the load-closing read knows about', async () => {
+    // Filings are read before paging starts on a cold load, so they are there
+    // as pages land — but a document filed by someone else DURING the load is
+    // only in the second read, at the end. `search.sync()` after the load is
+    // what makes the index see it, and it is the same thing `rebuild()` used
+    // to do on its way out.
+    const store = new DocumentStore(fakeArk(), 50);
+    const search = new SearchStore(store);
+    let reads = 0;
+    const late = corpus[0];
+    (store as unknown as { ark: ArkClient }).ark = {
+      ...fakeArk(),
+      getFilings: vi.fn(async (ids: string[]) =>
+        ids.map((id) => ({
+          folder_id: id,
+          documents: corpus
+            .filter((d) => (d === late && reads > 0 ? id === 'b' : filings.get(keyOf(d)) === id))
+            .map((d) => d.original),
+        })),
+      ),
+      getTrashed: vi.fn(async () => {
+        reads += 1;
+        return [];
+      }),
+    } as unknown as ArkClient;
+
+    await store.load(bootFolders, (_loaded, _total, documents) => search.upsertAll(documents));
+    search.sync();
+
+    search.query = 'minutes';
+    search.folderScope = { id: 'b', label: 'b' };
+    const hits = search.run(bootFolders).map((h) => encodeHashToBase64(h.doc.original));
+    expect(hits).toContain(keyOf(late));
   });
 });
