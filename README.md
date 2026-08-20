@@ -19,6 +19,21 @@ alongside the documents themselves.
 
 Ark is a [Moss](https://theweave.social) tool.
 
+## Which line is this?
+
+This is the `main` branch: **Holochain 0.7** (`hdi 0.8`, `hdk 0.7`, holonix
+`main-0.7`) and **Moss 0.16** (`@theweave/cli 0.16.x`, `@theweave/api 0.7.x`).
+The `main-0.6` branch is the parallel Holochain 0.6 / Moss 0.15 line. The two
+are kept in step; pick the branch that matches the conductor and Moss you are
+running.
+
+## Development model
+
+`main` is the **development line**. Work lands here first and is back-ported to
+`main-0.6` by cherry-pick — not the other way round. A change that applies only
+to the 0.6 line (the HDK pin matching the conductor Moss 0.15 bundles) is
+authored there and stays there.
+
 ## Environment Setup
 
 > PREREQUISITE: set up the [holochain development environment](https://developer.holochain.org/docs/install/).
