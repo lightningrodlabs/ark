@@ -42,10 +42,33 @@ if (params.get('seed') === 'pending-structure') {
 // Park/release a zome fn, so a spec can assert on what the UI looks like
 // while a call is still in flight — see stub-client's stallZomeCalls, and
 // pane-header.spec.ts, which uses it to catch a running import.
-(window as unknown as { __ARK_STALL__?: (fn: string) => void }).__ARK_STALL__ = (fn) =>
+//
+// `?stall=<fn>` does the same from BEFORE the app mounts, which the window
+// seam cannot: by the time a spec can call it the corpus has already loaded,
+// so the initial-load specs (progressive-load.spec.ts) need the park in place
+// first.
+//
+// `__ARK_RELEASE_ONE__` lets the single parked call through and immediately
+// parks the next one, so a spec can walk a long run — a paged load, an import
+// — one zome call at a time and assert on what the UI shows in between. The
+// re-park lands before the released call's continuation runs, because
+// `releaseZomeCalls` only resolves promises: their `await`s resume as
+// microtasks after this synchronous function returns.
+let stalled: string | null = params.get('stall');
+if (stalled) client.stallZomeCalls(stalled);
+(window as unknown as { __ARK_STALL__?: (fn: string) => void }).__ARK_STALL__ = (fn) => {
+  stalled = fn;
   client.stallZomeCalls(fn);
-(window as unknown as { __ARK_RELEASE__?: () => void }).__ARK_RELEASE__ = () =>
+};
+(window as unknown as { __ARK_RELEASE__?: () => void }).__ARK_RELEASE__ = () => {
+  stalled = null;
   client.releaseZomeCalls();
+};
+(window as unknown as { __ARK_RELEASE_ONE__?: () => void }).__ARK_RELEASE_ONE__ = () => {
+  const fn = stalled;
+  client.releaseZomeCalls();
+  if (fn) client.stallZomeCalls(fn);
+};
 
 // `?asset=plain` or `?asset=rendered` seeds one known document directly
 // against the stub, then sets `__ARK_TEST_ASSET__` so App.svelte's onMount
