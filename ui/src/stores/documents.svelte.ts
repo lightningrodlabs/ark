@@ -81,7 +81,7 @@ export class DocumentStore {
    */
   async load(
     folders: Folder[],
-    onChunk?: (loaded: number, total: number) => void,
+    onChunk?: (loaded: number, total: number, documents: DocumentSummary[]) => void,
   ): Promise<boolean> {
     // A cold start has never recorded a total. Only then is the growing,
     // partial map worth publishing: it drives the "Loading documents… N"
@@ -123,7 +123,14 @@ export class DocumentStore {
         // `total` is the anchor's own count, reported alongside the first
         // page, so a caller counting a warm load — which publishes nothing
         // reactive — still has both halves of "N of M".
-        onChunk?.(byOriginal.size, total);
+        //
+        // The page's own documents ride along so a caller can do per-page work
+        // — App.svelte feeds them straight into the search index — instead of
+        // waiting for the whole corpus and then walking it a second time. What
+        // is reported is what THIS page carried, which may repeat what an
+        // earlier one did; indexing is idempotent for exactly that reason (see
+        // ArkIndex.upsert).
+        onChunk?.(byOriginal.size, total, page.documents);
       }
 
       // Assign only on a real difference. `$state` compares by reference for

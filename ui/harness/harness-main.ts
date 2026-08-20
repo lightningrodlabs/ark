@@ -6,6 +6,7 @@ import '../src/app.css';
 import { mount } from 'svelte';
 import App from '../src/App.svelte';
 import { createStubClient } from './stub-client';
+import { ArkIndex } from '../src/search/index';
 import {
   seedReferenceArchive,
   seedPendingStructureArchive,
@@ -17,6 +18,25 @@ import {
 
 const client = createStubClient();
 const params = new URLSearchParams(location.search);
+
+// Counts what the boot actually did to the search index, so a spec can assert
+// that the corpus was indexed as it arrived and that no separate full rebuild
+// pass ran at the end. Production code exposes nothing for this — the harness
+// wraps the two methods here, before App is mounted below. `rebuilds` is
+// deliberately a count and not a boolean: `rebuild()` is still the right thing
+// for the reconcile sweep, so a spec has to say *when* it expects none.
+const indexCalls = { rebuilds: 0, indexed: 0 };
+const realRebuild = ArkIndex.prototype.rebuild;
+ArkIndex.prototype.rebuild = function (docs) {
+  indexCalls.rebuilds += 1;
+  return realRebuild.call(this, docs);
+};
+const realUpsertAll = ArkIndex.prototype.upsertAll;
+ArkIndex.prototype.upsertAll = function (docs) {
+  indexCalls.indexed += docs.length;
+  return realUpsertAll.call(this, docs);
+};
+(window as unknown as { __ARK_INDEX_CALLS__?: unknown }).__ARK_INDEX_CALLS__ = indexCalls;
 
 // `?seed=archive` fills the stub with an archive the shape of the real one
 // before the app mounts — thirteen committees, 1406 documents, the largest
