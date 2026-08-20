@@ -16,6 +16,70 @@ import {
   seedAssetDocumentWithVersions,
 } from './seed';
 
+// ---------------------------------------------------------------------------
+// Reading picked files: the one part of the import path the stub client cannot
+// reach, because it goes to the real filesystem rather than through callZome.
+//
+// Two seams, both installed before the app mounts:
+//
+// - `__ARK_FILE_READS__` counts reads and remembers the PEAK number in flight
+//   at once, so a spec can prove the eager markdown reads are pooled. This is
+//   the whole bug: `Promise.all` over 1406 picked files starts 1406 reads in
+//   one tick and Chromium answers with `NotReadableError`.
+// - `__ARK_FAIL_FILE_READS__(pattern)` makes every read of a file whose name
+//   matches fail with exactly that DOMException, which is how a read failure
+//   gets tested without arranging a real filesystem failure.
+//
+// Both `File.text()` (markdown) and `FileReader.readAsArrayBuffer()`
+// (attachment bytes) are covered — those are the two reads production does.
+const fileReads = { inflight: 0, peak: 0, total: 0 };
+let failReadsMatching: RegExp | null = null;
+
+const notReadable = () =>
+  new DOMException(
+    'The requested file could not be read, typically due to permission problems ' +
+      'that have occurred after a reference to a file was acquired.',
+    'NotReadableError',
+  );
+
+const realText = File.prototype.text;
+File.prototype.text = function (this: File): Promise<string> {
+  fileReads.total += 1;
+  fileReads.inflight += 1;
+  fileReads.peak = Math.max(fileReads.peak, fileReads.inflight);
+  const read = failReadsMatching?.test(this.name)
+    ? Promise.reject(notReadable())
+    : realText.call(this);
+  return read.then(
+    (text) => {
+      fileReads.inflight -= 1;
+      return text;
+    },
+    (error) => {
+      fileReads.inflight -= 1;
+      throw error;
+    },
+  );
+};
+
+const realReadAsArrayBuffer = FileReader.prototype.readAsArrayBuffer;
+FileReader.prototype.readAsArrayBuffer = function (this: FileReader, blob: Blob): void {
+  const name = (blob as File).name ?? '';
+  if (!failReadsMatching?.test(name)) return realReadAsArrayBuffer.call(this, blob);
+  // `error` is readonly on the instance, so it is defined rather than
+  // assigned — production reads `reader.error` in its onerror handler and a
+  // null there would report the failure without naming it.
+  Object.defineProperty(this, 'error', { value: notReadable(), configurable: true });
+  setTimeout(() => this.dispatchEvent(new ProgressEvent('error')), 0);
+};
+
+(window as unknown as { __ARK_FILE_READS__?: unknown }).__ARK_FILE_READS__ = fileReads;
+(
+  window as unknown as { __ARK_FAIL_FILE_READS__?: (pattern: string | null) => void }
+).__ARK_FAIL_FILE_READS__ = (pattern) => {
+  failReadsMatching = pattern ? new RegExp(pattern) : null;
+};
+
 const client = createStubClient();
 const params = new URLSearchParams(location.search);
 
