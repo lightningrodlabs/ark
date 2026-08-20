@@ -101,7 +101,6 @@
       <button onclick={onTrash}>Trash</button>
       {#if weave?.inMoss && weave?.dnaHash}
         <button onclick={() => addToPocket({})}>Add to pocket</button>
-        <button onclick={() => addToPocket({ view: 'rendered' })}>Add rendered view to pocket</button>
       {/if}
     </div>
   </header>

@@ -30,17 +30,20 @@ describe('getAssetInfo', () => {
     expect(info).toEqual({ name: 'Board Minutes', icon_src: expect.stringContaining('data:image/svg+xml') });
   });
 
-  it('names the asset the same way for the rendered WAL, but with a different icon', async () => {
+  it('still resolves a pocket item saved with the old "rendered" context', async () => {
+    // That second view was removed: it rendered through the same AssetView and
+    // was indistinguishable from the plain one once opened. Items already in
+    // someone's pocket still carry the context, and breaking them would be a
+    // worse outcome than the duplication ever was.
     const plain = await appletServices.getAssetInfo!(clientReturning(doc), {
       hrl: [new Uint8Array(), original],
       context: {},
     });
-    const rendered = await appletServices.getAssetInfo!(clientReturning(doc), {
+    const legacy = await appletServices.getAssetInfo!(clientReturning(doc), {
       hrl: [new Uint8Array(), original],
       context: { view: 'rendered' },
     });
-    expect(rendered!.name).toBe(plain!.name);
-    expect(rendered!.icon_src).not.toBe(plain!.icon_src);
+    expect(legacy).toEqual(plain);
   });
 
   it('returns undefined, not an error, for a document that no longer resolves', async () => {
