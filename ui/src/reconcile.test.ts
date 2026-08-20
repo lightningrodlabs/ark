@@ -9,6 +9,7 @@ function fakeDeps(
     treeMoved?: boolean;
     structurePending?: boolean;
     sync?: Partial<SyncResult>;
+    busy?: () => boolean;
   } = {},
 ) {
   const tree = {
@@ -29,15 +30,15 @@ function fakeDeps(
     syncMissing: vi.fn(async () => syncResult),
   };
   const search = { rebuild: vi.fn(), upsert: vi.fn(), remove: vi.fn(), sync: vi.fn() };
-  return { tree, store, search };
+  return { tree, store, search, busy: opts.busy };
 }
 
 describe('reconcile', () => {
   it('skips the reload on a focus trigger when nothing changed', async () => {
     const deps = fakeDeps({ changed: false });
-    const didReload = await reconcile('focus', deps as any);
+    const outcome = await reconcile('focus', deps as any);
 
-    expect(didReload).toBe(false);
+    expect(outcome).toBe('unchanged');
     expect(deps.store.changedSince).toHaveBeenCalledOnce();
     expect(deps.tree.load).not.toHaveBeenCalled();
     expect(deps.store.syncMissing).not.toHaveBeenCalled();
@@ -52,9 +53,9 @@ describe('reconcile', () => {
     const upserted = [{ meta: { title: 'New' } }] as any;
     const departed = [new Uint8Array([9])] as any;
     const deps = fakeDeps({ changed: true, sync: { changed: true, upserted, departed } });
-    const didReload = await reconcile('focus', deps as any);
+    const outcome = await reconcile('focus', deps as any);
 
-    expect(didReload).toBe(true);
+    expect(outcome).toBe('changed');
     expect(deps.store.changedSince).toHaveBeenCalledOnce();
     expect(deps.tree.load).toHaveBeenCalledOnce();
     expect(deps.store.syncMissing).toHaveBeenCalledWith(deps.tree.folders);
@@ -73,9 +74,9 @@ describe('reconcile', () => {
   // amendment, and that is what the 'sweep' source below is for.
   it('takes the cheap path on an ordinary timer tick and skips when nothing changed', async () => {
     const deps = fakeDeps({ changed: false });
-    const didReload = await reconcile('timer', deps as any);
+    const outcome = await reconcile('timer', deps as any);
 
-    expect(didReload).toBe(false);
+    expect(outcome).toBe('unchanged');
     expect(deps.store.changedSince).toHaveBeenCalledOnce();
     expect(deps.store.syncMissing).not.toHaveBeenCalled();
     expect(deps.store.load).not.toHaveBeenCalled();
@@ -84,7 +85,7 @@ describe('reconcile', () => {
 
   it('syncs only the missing documents on a timer tick when the cheap check moved', async () => {
     const deps = fakeDeps({ changed: true, sync: { changed: true } });
-    expect(await reconcile('timer', deps as any)).toBe(true);
+    expect(await reconcile('timer', deps as any)).toBe('changed');
     expect(deps.store.syncMissing).toHaveBeenCalledOnce();
     expect(deps.store.load).not.toHaveBeenCalled();
   });
@@ -94,7 +95,7 @@ describe('reconcile', () => {
     // trash/restore swap that resolves back to the recorded total between the
     // two calls) — syncMissing's own `changed` is what gates index work.
     const deps = fakeDeps({ changed: true, sync: { changed: false } });
-    expect(await reconcile('focus', deps as any)).toBe(false);
+    expect(await reconcile('focus', deps as any)).toBe('unchanged');
     expect(deps.search.upsert).not.toHaveBeenCalled();
     expect(deps.search.remove).not.toHaveBeenCalled();
     expect(deps.search.sync).not.toHaveBeenCalled();
@@ -108,7 +109,7 @@ describe('reconcile', () => {
   // what changed from a delta it never computed.
   it('rebuilds the index when syncMissing falls back to the paged load', async () => {
     const deps = fakeDeps({ changed: true, sync: { changed: true, fellBack: true } });
-    expect(await reconcile('focus', deps as any)).toBe(true);
+    expect(await reconcile('focus', deps as any)).toBe('changed');
     expect(deps.search.rebuild).toHaveBeenCalledOnce();
     expect(deps.search.upsert).not.toHaveBeenCalled();
     expect(deps.search.remove).not.toHaveBeenCalled();
@@ -116,7 +117,7 @@ describe('reconcile', () => {
 
   it('does not rebuild when the fallback load found nothing changed', async () => {
     const deps = fakeDeps({ changed: true, sync: { changed: false, fellBack: true } });
-    expect(await reconcile('focus', deps as any)).toBe(false);
+    expect(await reconcile('focus', deps as any)).toBe('unchanged');
     expect(deps.search.rebuild).not.toHaveBeenCalled();
   });
 
@@ -127,23 +128,23 @@ describe('reconcile', () => {
   // unconditional sweep, up to thirty minutes away.
   it('keeps retrying the tree on a focus trigger while structure is pending, even with nothing else changed', async () => {
     const deps = fakeDeps({ changed: false, structurePending: true, sync: { changed: false } });
-    const didReload = await reconcile('focus', deps as any);
+    const outcome = await reconcile('focus', deps as any);
 
     expect(deps.store.changedSince).not.toHaveBeenCalled();
     expect(deps.tree.load).toHaveBeenCalledOnce();
     expect(deps.store.syncMissing).toHaveBeenCalledOnce();
-    expect(didReload).toBe(false);
+    expect(outcome).toBe('unchanged');
   });
 
   it('keeps retrying the tree on an ordinary timer tick while structure is pending', async () => {
     const deps = fakeDeps({ structurePending: true, sync: { changed: true } });
-    expect(await reconcile('timer', deps as any)).toBe(true);
+    expect(await reconcile('timer', deps as any)).toBe('changed');
     expect(deps.tree.load).toHaveBeenCalledOnce();
   });
 
   it('falls back to the cheap changedSince check once structure is no longer pending', async () => {
     const deps = fakeDeps({ structurePending: false, changed: false });
-    expect(await reconcile('focus', deps as any)).toBe(false);
+    expect(await reconcile('focus', deps as any)).toBe('unchanged');
     expect(deps.store.changedSince).toHaveBeenCalledOnce();
     expect(deps.tree.load).not.toHaveBeenCalled();
   });
@@ -155,9 +156,9 @@ describe('reconcile', () => {
     // `latest` catches it. The sweep pays for a full reload on a longer
     // cadence to guarantee that still converges.
     const deps = fakeDeps({ changed: false, docsMoved: true });
-    const didReload = await reconcile('sweep', deps as any);
+    const outcome = await reconcile('sweep', deps as any);
 
-    expect(didReload).toBe(true);
+    expect(outcome).toBe('changed');
     expect(deps.store.changedSince).not.toHaveBeenCalled();
     expect(deps.store.syncMissing).not.toHaveBeenCalled();
     expect(deps.tree.load).toHaveBeenCalledOnce();
@@ -171,16 +172,16 @@ describe('reconcile', () => {
   // replaces every SearchHit, which repaints the view on its own.
   it('does not rebuild the search index when a sweep found nothing changed', async () => {
     const deps = fakeDeps({ docsMoved: false, treeMoved: false });
-    const didReload = await reconcile('sweep', deps as any);
+    const outcome = await reconcile('sweep', deps as any);
 
     expect(deps.store.load).toHaveBeenCalledOnce();
     expect(deps.search.rebuild).not.toHaveBeenCalled();
-    expect(didReload).toBe(false);
+    expect(outcome).toBe('unchanged');
   });
 
   it('rebuilds the index when a sweep found the documents changed', async () => {
     const deps = fakeDeps({ docsMoved: true });
-    expect(await reconcile('sweep', deps as any)).toBe(true);
+    expect(await reconcile('sweep', deps as any)).toBe('changed');
     expect(deps.search.rebuild).toHaveBeenCalledOnce();
   });
 
@@ -188,7 +189,57 @@ describe('reconcile', () => {
   // store's own reactive field is what carries the change to the view.
   it('reports a tree-only change without rebuilding the index', async () => {
     const deps = fakeDeps({ treeMoved: true, docsMoved: false });
-    expect(await reconcile('sweep', deps as any)).toBe(true);
+    expect(await reconcile('sweep', deps as any)).toBe('changed');
     expect(deps.search.rebuild).not.toHaveBeenCalled();
+  });
+});
+
+// A long import is minutes of `create_document` writes on the same cell this
+// reconcile would read from. The five-minute tick lands in the middle of one
+// and — correctly — sees that the corpus moved, because the import moved it;
+// it then re-fetches and re-indexes against the import's own writes, so the
+// import slows and the progress count sits still while it happens. A `sweep`
+// is worse still: an unconditional full re-page plus a ~640ms index rebuild.
+//
+// The app knows when it is busy (ImportPanel reports `running` up to
+// App.svelte), so the tick asks rather than guessing.
+describe('reconcile while the app is busy', () => {
+  for (const source of ['focus', 'timer', 'sweep'] as const) {
+    it(`makes no zome call at all on a ${source} tick while busy() is true`, async () => {
+      const deps = fakeDeps({ changed: true, docsMoved: true, busy: () => true });
+      expect(await reconcile(source, deps as any)).toBe('skipped');
+
+      expect(deps.store.changedSince).not.toHaveBeenCalled();
+      expect(deps.tree.load).not.toHaveBeenCalled();
+      expect(deps.store.load).not.toHaveBeenCalled();
+      expect(deps.store.syncMissing).not.toHaveBeenCalled();
+      expect(deps.search.rebuild).not.toHaveBeenCalled();
+    });
+  }
+
+  // Skipping is only safe because it is temporary: the import refreshes the
+  // store itself when it finishes, and the next ordinary tick has to resume
+  // the normal schedule rather than stay suppressed.
+  it('runs normally on the next tick once busy() goes false', async () => {
+    let busy = true;
+    const deps = fakeDeps({ changed: true, sync: { changed: true }, busy: () => busy });
+
+    expect(await reconcile('timer', deps as any)).toBe('skipped');
+    busy = false;
+    expect(await reconcile('timer', deps as any)).toBe('changed');
+    expect(deps.store.changedSince).toHaveBeenCalledOnce();
+    expect(deps.store.syncMissing).toHaveBeenCalledOnce();
+  });
+
+  it('still checks structurePending only after busy(), so a pending tree cannot slip past the guard', async () => {
+    const deps = fakeDeps({ structurePending: true, busy: () => true });
+    expect(await reconcile('timer', deps as any)).toBe('skipped');
+    expect(deps.tree.load).not.toHaveBeenCalled();
+  });
+
+  it('runs as usual when no busy predicate was supplied at all', async () => {
+    const deps = fakeDeps({ changed: false });
+    expect(await reconcile('timer', deps as any)).toBe('unchanged');
+    expect(deps.store.changedSince).toHaveBeenCalledOnce();
   });
 });

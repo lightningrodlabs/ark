@@ -5,7 +5,7 @@ import {
   SignalStore,
   peersExcludingSelf,
 } from './signals.svelte';
-import type { ReconcileSource } from '../reconcile';
+import type { ReconcileOutcome, ReconcileSource } from '../reconcile';
 
 const key = (n: number) => new Uint8Array([n, n, n]) as any;
 
@@ -29,12 +29,13 @@ describe('SignalStore reconcile cadence', () => {
     vi.useRealTimers();
   });
 
-  function start() {
+  function start(outcome?: () => ReconcileOutcome | void) {
     vi.useFakeTimers();
     const sources: ReconcileSource[] = [];
     const client = { myPubKey: key(1), on: () => () => {} } as any;
     const store = new SignalStore(client, {} as any, () => {}, (source) => {
       sources.push(source);
+      return outcome?.();
     });
     store.start();
     return { store, sources };
@@ -67,5 +68,56 @@ describe('SignalStore reconcile cadence', () => {
     store.stop();
     vi.advanceTimersByTime(RECONCILE_INTERVAL_MS * 3);
     expect(sources).toEqual([]);
+  });
+
+  // The sweep is the ONLY pass that catches an amendment made by a peer whose
+  // signal was dropped — nothing cheaper can see one. So a tick that did no
+  // work (the callback reported `skipped`, because an import is running) must
+  // not spend the sweep's turn: if it did, the unconditional pass would be
+  // silently missed and the next one would be half an hour away.
+  it('does not let a skipped tick consume the sweep', async () => {
+    let busy = false;
+    const { store, sources } = start(() => (busy ? 'skipped' : 'changed'));
+
+    // Five ordinary ticks: the sixth is due to be the sweep.
+    for (let i = 0; i < FULL_SWEEP_EVERY - 1; i++) {
+      await vi.advanceTimersByTimeAsync(RECONCILE_INTERVAL_MS);
+    }
+    expect(sources).toEqual(Array(FULL_SWEEP_EVERY - 1).fill('timer'));
+
+    // Now an import starts. The next three ticks each ask for the sweep and
+    // each is skipped without touching the cell.
+    busy = true;
+    for (let i = 0; i < 3; i++) await vi.advanceTimersByTimeAsync(RECONCILE_INTERVAL_MS);
+    expect(sources.slice(FULL_SWEEP_EVERY - 1)).toEqual(['sweep', 'sweep', 'sweep']);
+
+    // The import finishes; the sweep is still owed, and the very next tick is
+    // the one that pays it rather than another five ordinary ticks first.
+    busy = false;
+    await vi.advanceTimersByTimeAsync(RECONCILE_INTERVAL_MS);
+    expect(sources[sources.length - 1]).toBe('sweep');
+
+    // And the schedule resumes from there: ordinary ticks again.
+    await vi.advanceTimersByTimeAsync(RECONCILE_INTERVAL_MS);
+    expect(sources[sources.length - 1]).toBe('timer');
+    store.stop();
+  });
+
+  // The same reasoning one level down: a skipped tick never reached the cell,
+  // so it must not start the min-gap clock either. Otherwise the first focus
+  // after an import finishes would be held off for a minute by a tick that
+  // did nothing.
+  it('does not start the min-gap clock on a skipped tick', async () => {
+    let busy = true;
+    const { store, sources } = start(() => (busy ? 'skipped' : 'changed'));
+
+    await vi.advanceTimersByTimeAsync(RECONCILE_INTERVAL_MS);
+    expect(sources).toEqual(['timer']);
+
+    busy = false;
+    window.dispatchEvent(new Event('focus'));
+    await Promise.resolve();
+    expect(sources).toEqual(['timer', 'focus']);
+    store.stop();
   });
 });

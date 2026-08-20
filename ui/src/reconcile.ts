@@ -9,10 +9,28 @@ import type { SearchStore } from './stores/search.svelte';
  */
 export type ReconcileSource = 'focus' | 'timer' | 'sweep';
 
+/**
+ * What a pass actually did.
+ *
+ * `skipped` is not "found nothing": it means the pass made no zome call at
+ * all, because `busy()` said the app was in the middle of something. The
+ * caller needs to tell the two apart — see `SignalStore.maybeReconcile`, where
+ * a skipped tick must not consume the sweep's turn.
+ */
+export type ReconcileOutcome = 'skipped' | 'unchanged' | 'changed';
+
 export interface ReconcileDeps {
   tree: TreeStore;
   store: DocumentStore;
   search: SearchStore;
+  /**
+   * "The app is in the middle of something long; do not read the cell."
+   *
+   * Supplied by the caller (App.svelte wires it to `importRunning`) rather
+   * than read from module state, so the rule is testable and so this module
+   * still knows nothing about what "busy" happens to mean this month.
+   */
+  busy?: () => boolean;
 }
 
 /**
@@ -84,10 +102,29 @@ async function syncMissing({ tree, store, search }: ReconcileDeps): Promise<bool
  * skipped fetch, and the uncommon case is a reload that touches only what
  * changed.
  *
- * Returns whether anything actually changed, mainly so tests can assert on it.
+ * Returns what the pass did, mainly so the caller can tell a skipped tick from
+ * one that ran and found nothing.
  */
-export async function reconcile(source: ReconcileSource, deps: ReconcileDeps): Promise<boolean> {
-  if (source === 'sweep') return reloadEverything(deps);
+export async function reconcile(
+  source: ReconcileSource,
+  deps: ReconcileDeps,
+): Promise<ReconcileOutcome> {
+  // Before anything, including `sweep` — a sweep is the most expensive tick
+  // there is (an unconditional full re-page plus a ~640ms index rebuild), and
+  // the whole point is not to spend it against a cell that a long import is
+  // already writing to. Five minutes into a 1406-document import the tick
+  // fires, `changedSince()` correctly reports that the corpus moved — the
+  // import moved it — and the re-fetch then serialises against the import's
+  // own writes, which is the import slowing down and the progress count
+  // sitting still.
+  //
+  // Skipping is safe because it is temporary and because nothing depends on
+  // this particular tick: the import refreshes the store itself when it
+  // finishes, and the next tick resumes the normal schedule. A tick skipped
+  // here reports `skipped` so it does not consume the sweep's turn either
+  // (see signals.svelte.ts).
+  if (deps.busy?.()) return 'skipped';
+  if (source === 'sweep') return (await reloadEverything(deps)) ? 'changed' : 'unchanged';
   // `changedSince()` only looks at the document side (the AllDocuments total
   // and trash membership) — it has no way to notice that the folder tree
   // itself is still arriving, since that touches neither. Without this check,
@@ -97,8 +134,8 @@ export async function reconcile(source: ReconcileSource, deps: ReconcileDeps): P
   // document total and return early before ever calling `tree.load()` again.
   // `syncMissing` always reloads the tree first, so retrying it here is what
   // makes "keep retrying" true rather than aspirational.
-  if (deps.tree.structurePending) return syncMissing(deps);
+  if (deps.tree.structurePending) return (await syncMissing(deps)) ? 'changed' : 'unchanged';
   const changed = await deps.store.changedSince();
-  if (!changed) return false;
-  return syncMissing(deps);
+  if (!changed) return 'unchanged';
+  return (await syncMissing(deps)) ? 'changed' : 'unchanged';
 }
