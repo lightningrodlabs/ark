@@ -476,6 +476,89 @@ describe('DocumentStore', () => {
     });
   });
 
+  describe('the initial load, which the app now renders around rather than waiting on', () => {
+    it('flags itself as loading only for the cold pass', async () => {
+      const docs = Array.from({ length: 250 }, (_, i) => summary(i, `Doc ${i}`));
+      const store = new DocumentStore(fakeArk(docs, []), 100);
+      expect(store.loading).toBe(false);
+
+      const during: boolean[] = [];
+      await store.load(folders, () => during.push(store.loading));
+      expect(during).toEqual([true, true, true]);
+      expect(store.loading).toBe(false);
+
+      // The five-minute backstop reconcile runs over data that is already on
+      // screen and complete; there is nothing to warn about, and raising the
+      // flag would put the progress banner back up every five minutes.
+      const later: boolean[] = [];
+      await store.load(folders, () => later.push(store.loading));
+      expect(later).toEqual([false, false, false]);
+    });
+
+    it('lowers the flag even when a page fails', async () => {
+      const ark = fakeArk([summary(1, 'One')], []);
+      ark.getAllDocuments = vi.fn(async () => {
+        throw new Error('conductor went away');
+      }) as any;
+      const store = new DocumentStore(ark, 100);
+
+      await expect(store.load(folders)).rejects.toThrow('conductor went away');
+      expect(store.loading).toBe(false);
+    });
+
+    it('publishes the archive total from the first page, for the progress banner', async () => {
+      const docs = Array.from({ length: 250 }, (_, i) => summary(i, `Doc ${i}`));
+      const store = new DocumentStore(fakeArk(docs, []), 100);
+      expect(store.total).toBeNull();
+
+      const totals: (number | null)[] = [];
+      await store.load(folders, () => totals.push(store.total));
+      // "100 of 250", not "100 of ?" for fourteen more round trips.
+      expect(totals).toEqual([250, 250, 250]);
+    });
+
+    it('reads filings before the documents, so nothing looks unfiled mid-load', async () => {
+      // A document whose filing has not been read is indistinguishable from
+      // one that was never filed, and the Unfiled bin offers "Move all here"
+      // over exactly that. Reading filings up front — one call covering the
+      // whole archive regardless of which pages have arrived — means every
+      // document lands in its folder the moment it arrives.
+      const docs = Array.from({ length: 250 }, (_, i) => summary(i, `Doc ${i}`));
+      const filings: FolderFiling[] = [
+        { folder_id: 'root', documents: docs.map((d) => d.original) },
+      ];
+      const ark = fakeArk(docs, filings);
+      const store = new DocumentStore(ark, 100);
+
+      const filedSoFar: number[] = [];
+      const unfiledSoFar: number[] = [];
+      await store.load(folders, () => {
+        filedSoFar.push(store.inFolder('root', folders).length);
+        unfiledSoFar.push(store.unfiled().length);
+      });
+
+      expect(filedSoFar).toEqual([100, 200, 250]);
+      expect(unfiledSoFar).toEqual([0, 0, 0]);
+    });
+
+    it('does not re-read filings up front on a warm load', async () => {
+      const docs = [summary(1, 'One')];
+      const ark = fakeArk(docs, []);
+      const store = new DocumentStore(ark, 100);
+
+      await store.load(folders);
+      const coldCalls = (ark.getFilings as any).mock.calls.length;
+      await store.load(folders);
+      const warmCalls = (ark.getFilings as any).mock.calls.length - coldCalls;
+
+      // Twice on the cold pass (before the documents, and again after, which
+      // is what establishes the diff the reconcile compares against), once on
+      // every pass after it.
+      expect(coldCalls).toBe(2);
+      expect(warmCalls).toBe(1);
+    });
+  });
+
   it('files a peer-created document into its folder without a reload', async () => {
     const docs = [summary(1, 'Mine')];
     const filings: FolderFiling[] = [{ folder_id: 'root', documents: [hash(1)] }];

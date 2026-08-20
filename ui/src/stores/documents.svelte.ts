@@ -50,6 +50,18 @@ export class DocumentStore {
    * out its view is partial instead of silently seeing a truncated corpus.
    */
   missing = $state(0);
+  /**
+   * True while the very first `load()` is still paging the archive in.
+   *
+   * The app renders around this rather than instead of it: the tree, the
+   * toolbar and every document already paged in are live and usable, and this
+   * only drives the progress banner, suppresses the Unfiled bin (a document
+   * whose page has not arrived is indistinguishable from an unfiled one) and
+   * holds search back until the index covers the whole corpus. Later loads —
+   * the reconcile backstop — never set it: they run over data that is already
+   * on screen and complete, and there is nothing to warn about.
+   */
+  loading = $state(false);
   /** Folder list from the last load, so filings can be re-read without it. */
   private lastFolders: Folder[] = [];
 
@@ -76,34 +88,56 @@ export class DocumentStore {
     // 100-document page, each repaint briefly showing a TRUNCATED archive,
     // before landing back on data identical to what was already there.
     const cold = this.total === null;
-    const byOriginal = new Map<string, DocumentSummary>();
-    let total = Infinity;
-    for (let offset = 0; offset < total; offset += this.chunk) {
-      const page = await this.ark.getAllDocuments(offset, this.chunk);
-      total = page.total;
-      for (const doc of page.documents) byOriginal.set(key(doc.original), doc);
+    if (cold) this.loading = true;
+    try {
+      // Filings and trash FIRST on a cold start. Each is one call covering the
+      // whole archive regardless of which documents have been paged in, so
+      // reading them up front means every document lands in its folder the
+      // moment it arrives. Read afterwards instead — as the non-cold path
+      // still does — the growing corpus spends the whole load looking unfiled,
+      // which is the state the Unfiled bin's "Move all here" would offer to
+      // act on.
       if (cold) {
-        this.byOriginal = new Map(byOriginal);
-        this.loaded = byOriginal.size;
+        await this.loadFilings(folders);
+        await this.loadTrashed();
       }
-      onChunk?.(byOriginal.size);
-    }
 
-    // Assign only on a real difference. `$state` compares by reference for
-    // objects, so handing it an equal-but-new Map is indistinguishable from a
-    // genuine change and invalidates every derivation downstream — the whole
-    // document list, folder counts, orphan bins and trash view.
-    let changed = false;
-    if (!sameDocuments(this.byOriginal, byOriginal)) {
-      this.byOriginal = byOriginal;
-      changed = true;
+      const byOriginal = new Map<string, DocumentSummary>();
+      let total = Infinity;
+      for (let offset = 0; offset < total; offset += this.chunk) {
+        const page = await this.ark.getAllDocuments(offset, this.chunk);
+        total = page.total;
+        for (const doc of page.documents) byOriginal.set(key(doc.original), doc);
+        if (cold) {
+          this.byOriginal = new Map(byOriginal);
+          this.loaded = byOriginal.size;
+          // Published from the first page on, so the progress banner can say
+          // "N of M" instead of counting up towards an unknown ceiling. `cold`
+          // was captured before the loop, so writing it here does not turn the
+          // rest of this load into a warm one.
+          this.total = total;
+        }
+        onChunk?.(byOriginal.size);
+      }
+
+      // Assign only on a real difference. `$state` compares by reference for
+      // objects, so handing it an equal-but-new Map is indistinguishable from a
+      // genuine change and invalidates every derivation downstream — the whole
+      // document list, folder counts, orphan bins and trash view.
+      let changed = false;
+      if (!sameDocuments(this.byOriginal, byOriginal)) {
+        this.byOriginal = byOriginal;
+        changed = true;
+      }
+      this.loaded = byOriginal.size;
+      this.total = total;
+      this.missing = total - byOriginal.size;
+      if (await this.loadFilings(folders)) changed = true;
+      if (await this.loadTrashed()) changed = true;
+      return changed;
+    } finally {
+      if (cold) this.loading = false;
     }
-    this.loaded = byOriginal.size;
-    this.total = total;
-    this.missing = total - byOriginal.size;
-    if (await this.loadFilings(folders)) changed = true;
-    if (await this.loadTrashed()) changed = true;
-    return changed;
   }
 
   /**
