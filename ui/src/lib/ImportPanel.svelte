@@ -101,11 +101,15 @@
           files: fileStorage,
           attachments,
           onAttachmentText: (original, name, text) => search?.setAttachmentText(original, name, text),
+          // Per document, not per slice. The slice boundary was the only
+          // thing that moved this number before, and at 25 documents a step
+          // that is minutes of a motionless label on the reference archive —
+          // indistinguishable from an import that has hung.
+          onProgress: (n) => (progress = i + n),
         });
         created += result.created;
         attached += result.attached;
         attachmentsFailed.push(...result.attachmentsFailed);
-        progress = Math.min(i + 25, plan.create.length);
       }
       await store.load(tree.folders);
     } catch (e) {

@@ -104,6 +104,34 @@ describe('runImport', () => {
     expect(result.created).toEqual(2);
   });
 
+  it('reports progress after each document, not only at the end', async () => {
+    // The import panel slices a large corpus into batches, so before this the
+    // progress label could only move once per 25 documents — minutes of a
+    // motionless number on the reference archive, which is what "the count
+    // did not update" describes.
+    const ark = { createDocument: vi.fn(async (_input: any) => new Uint8Array([9]) as any) };
+    const tree = { addFolder: vi.fn(async (name: string) => `id-${name}`) };
+    const plan = planImport(
+      [
+        minutes(1, 'Community Life', '2026-01-01'),
+        minutes(2, 'Community Life', '2026-02-01'),
+        minutes(3, 'Community Life', '2026-03-01'),
+      ],
+      [],
+      folders,
+    );
+
+    const seen: number[] = [];
+    await runImport(plan, {
+      ark: ark as any,
+      tree: tree as any,
+      folders,
+      onProgress: (n) => seen.push(n),
+    });
+
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
   it('creates a nested folder path a segment at a time, under the right parent', async () => {
     const ark = { createDocument: vi.fn(async (_input: any) => new Uint8Array([9]) as any) };
     const made: { name: string; parent: string | null }[] = [];
