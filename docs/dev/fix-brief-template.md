@@ -41,8 +41,20 @@ forward. Anything line-specific says so in its commit message.
 
 After back-porting, the two lines should differ only in their version deltas
 (dependency versions, the holonix ref, the `FlatOp` variant rename, the pin
-guard). `git log --format='%s' main...main-0.6 --left-only` should be empty:
-nothing should exist on `main` that has not reached `main-0.6`.
+guard).
+
+To check that, compare commit *subjects*, not commit ids — a cherry-pick has a
+different id on each line, so any id-based comparison (`main...main-0.6`) lists
+every commit and tells you nothing:
+
+```bash
+git log --format='%s' main...main-0.6 --left-only  | sort > /tmp/L
+git log --format='%s' main...main-0.6 --right-only | sort > /tmp/R
+comm -23 /tmp/L /tmp/R   # on main only — should be empty
+comm -13 /tmp/R /tmp/L   # on main-0.6 only — should be the line-specific commits
+```
+
+Nothing should sit on `main` that has not reached `main-0.6`.
 
 ## Environment
 
