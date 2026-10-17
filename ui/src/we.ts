@@ -21,7 +21,7 @@ const DOCUMENT_ICON = fileIcon(
 );
 
 /**
- * ark exposes no creatables or block types in the MVP, and no cross-applet
+ * ark exposes no creatables in the MVP, and no cross-applet
  * search (that needs its own DNA-side query and runs headless outside this
  * app — out of scope here, see the dispatch brief). getAssetInfo is the one
  * hook Moss actually needs: it is what lets a document dropped in the pocket
@@ -29,7 +29,6 @@ const DOCUMENT_ICON = fileIcon(
  */
 export const appletServices: AppletServices = {
   creatables: {},
-  blockTypes: {},
   getAssetInfo: async (
     appletClient: AppClient,
     wal: WAL,
