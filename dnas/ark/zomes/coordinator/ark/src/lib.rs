@@ -12,9 +12,9 @@ use hdk::prelude::*;
 pub fn init(_: ()) -> ExternResult<InitCallbackResult> {
     let mut functions = HashSet::new();
     functions.insert((zome_info()?.name, FunctionName("recv_remote_signal".into())));
-    create_cap_grant(CapGrantEntry::new(
+    create_cap_grant(CapGrantEntry::new_zome_call_grant(
         String::from("Receiving remote signals"),
-        ().into(),
+        GrantConstraint::Unrestricted,
         GrantedFunctions::Listed(functions),
     ))?;
     Ok(InitCallbackResult::Pass)
