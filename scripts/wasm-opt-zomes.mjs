@@ -7,8 +7,9 @@
  * from a plain `npm run build:happ` — a different network. That separation is
  * the point:
  *
- *   - The DNA published by the release workflow is the canonical one. Everyone
- *     installing ark from a release joins that network.
+ *   - The DNA built by `npm run build:happ:release` and frozen as the
+ *     `happ-v<dnaVersion>` release is the canonical one (see RELEASE.md).
+ *     Everyone installing ark from a release joins that network.
  *   - A local `build:happ` / `applet-dev` build is for development only, and
  *     must NOT land on the canonical network. Half-finished work has no
  *     business gossiping into a community's archive.
