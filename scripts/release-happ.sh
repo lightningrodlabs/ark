@@ -15,8 +15,8 @@
 #
 # Two sources, in order of preference:
 #   1. `workdir/ark.happ` from a local `npm run build:happ:release` — used when
-#      bootstrapping a new DNA line (0.7 started one: Holochain 0.7 has no data
-#      migration path, so its DNA hash and network are new by construction).
+#      bootstrapping a new DNA line (0.2.0 on Holochain 0.7.1 starts one: its
+#      DNA hash and network are new by construction).
 #      `build:happ:release` is the canonical build (it wasm-opts the zomes before
 #      packing); plain `build:happ` skips that and produces DIFFERENT bytes, which
 #      the sha256 check below will reject. See RELEASE.md.

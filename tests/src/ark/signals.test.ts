@@ -37,6 +37,7 @@ describe('remote signals', () => {
       const action = await call<ActionHash>(alice, 'update_folder_tree', {
         folders: [{ id: 'f1', name: 'One', parent: null, order: 0, deleted: false }],
       });
+      await dhtSync([alice, bob], arkCell(alice).cell_id[0]);
       await call(alice, 'notify_peers', {
         peers: [bob.agentPubKey],
         signal: { type: 'TreeUpdated', action },

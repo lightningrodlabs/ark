@@ -46,12 +46,14 @@ in `.happ-version`. Their sha256 is in `.happ-sha256`. Both
 `scripts/release-happ.sh` and the release workflow check it.
 
 > ⚠️ Do **not** release by uploading the output of `npm run package`. That
-> rebuilds the happ locally (your paths → wrong DNA → a forked network).
+> rebuilds the happ locally with plain `build:happ`, which skips wasm-opt
+> (different bytes → wrong DNA → a forked network).
 > Releases must go through the tag-triggered workflow below.
 
 ## One-time per DNA version: publish the canonical happ
 
 ```bash
+rm -rf target/wasm32-unknown-unknown   # wasm-opt edits target/ in place; start clean
 nix develop --command bash -c "npm run build:happ:release"
 nix develop --command bash scripts/release-happ.sh
 ```
